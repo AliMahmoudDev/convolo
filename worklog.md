@@ -27,3 +27,22 @@ Stage Summary:
 - Key decisions: LinguaLoop name, Next.js 15 + App Router, Prisma + Supabase, OpenAI GPT-4o-mini, Stripe, dark-mode-first, text-first (voice in Phase 2), freemium model (3 conv/day free), 3 language pairs for MVP
 - Open questions remain: Supabase project setup, Stripe account, OpenAI API key, OAuth app creation
 - Ready to begin Sprint 1 (Foundation) upon user approval
+
+---
+Task ID: 2
+Agent: Main Agent (Super Z)
+Task: Update plan to support flexible language pairs (any source → any target, not English-only)
+
+Work Log:
+- User pointed out that Arabs can't learn French/Spanish from Arabic in the original plan (English-only as source language)
+- Updated `project-overview.md`: Changed target audience to be source-language agnostic, added 7+ language pair combinations, added bilingual AI tutoring and multi-script support
+- Updated `database-schema.md`: Added `supported_languages` table (code, name, native_name, direction ltr/rtl, flag_emoji, is_active), changed `native_language` to NOT NULL without default 'en', updated ER diagram, updated seed data
+- Updated `content-copy.md`: Split onboarding Step 1 into two steps — "What's your native language?" and "What language do you want to learn?"
+- Updated `progress-tracker.md`: Added 3 new architecture decisions for flexible language pairs, supported_languages table, and MVP covering ar/en/es/fr
+
+Stage Summary:
+- App now supports ANY source → target language combination
+- New `supported_languages` table makes adding languages a config change (DB row + prompt template), not a code change
+- MVP covers 4 languages (ar, en, es, fr) = 12 possible language pairs
+- Key market expansion: Arabs learning English/French, Latin Americans learning English, Francophone Africans learning English
+- Onboarding now has 4 steps: Native Language → Target Language → Level → Goals
