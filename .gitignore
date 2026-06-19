@@ -1,8 +1,10 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# ===========================
+# Convolo — .gitignore
+# ===========================
 
-# dependencies
-node_modules
-/.pnp
+# Dependencies
+node_modules/
+.pnp
 .pnp.*
 .yarn/*
 !.yarn/patches
@@ -10,45 +12,103 @@ node_modules
 !.yarn/releases
 !.yarn/versions
 
-# testing
-/coverage
+# Next.js
+.next/
+out/
 
-# next.js
-/.next/
-/out/
+# Production
+build/
+dist/
 
-# production
-/build
+# Testing
+coverage/
+.nyc_output/
 
-# misc
+# ===========================
+# Environment & Secrets
+# ===========================
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env*.local
+
+# ===========================
+# IDE & Editor
+# ===========================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# ===========================
+# OS Generated
+# ===========================
 .DS_Store
-*.pem
+.DS_Store?
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
 
-# debug
+# ===========================
+# Debug & Logs
+# ===========================
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
-
-# env files (can opt-in for committing if needed)
-.env*
-
-# vercel
-.vercel
-
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
-local-*
-.claude
-.z-ai-config
 *.log
 dev.log
 dev.out.log
-test
-prompt
-
 server.log
-# Skills directory
-/skills/
+bun-debug.log*
+
+# ===========================
+# TypeScript
+# ===========================
+*.tsbuildinfo
+next-env.d.ts
+
+# ===========================
+# Vercel
+# ===========================
+.vercel/
+
+# ===========================
+# Prisma
+# ===========================
+prisma/migrations/**/migration_lock.toml
+
+# ===========================
+# AI & Sandbox internals
+# ===========================
+.claude/
+.z-ai-config/
+.zscripts/
+skills/
+prompt
+test
+
+# ===========================
+# Misc
+# ===========================
+*.pem
+*.key
+*.cert
+local-*
+.cache/
+.temp/
+.tmp/
