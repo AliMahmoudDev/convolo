@@ -39,6 +39,14 @@ jobs:
         if: steps.check-token.outputs.skip == 'false'
         run: npm i -g vercel@latest
 
+      - name: Set Supabase Environment Variables
+        if: steps.check-token.outputs.skip == 'false'
+        run: |
+          vercel env add NEXT_PUBLIC_SUPABASE_URL production --yes -t ${{ secrets.VERCEL_TOKEN }} <<< "${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}" || true
+          vercel env add NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY production --yes -t ${{ secrets.VERCEL_TOKEN }} <<< "${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}" || true
+          vercel env add NEXT_PUBLIC_SUPABASE_URL preview --yes -t ${{ secrets.VERCEL_TOKEN }} <<< "${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}" || true
+          vercel env add NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY preview --yes -t ${{ secrets.VERCEL_TOKEN }} <<< "${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}" || true
+
       - name: Pull Vercel Environment
         if: steps.check-token.outputs.skip == 'false'
         run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
