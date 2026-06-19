@@ -101,6 +101,10 @@ prisma/migrations/**/migration_lock.toml
 skills/
 prompt
 test
+Caddyfile
+tool-results/
+examples/
+mini-services/
 
 # ===========================
 # Convolo Internal Planning
@@ -109,6 +113,9 @@ test
 project-context/
 worklog.md
 upload/
+download/
+db/
+howitworks-*.png
 
 # ===========================
 # Misc
