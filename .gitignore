@@ -103,6 +103,14 @@ prompt
 test
 
 # ===========================
+# Convolo Internal Planning
+# (Project context, worklog, planning docs — team only)
+# ===========================
+project-context/
+worklog.md
+upload/
+
+# ===========================
 # Misc
 # ===========================
 *.pem
