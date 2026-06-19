@@ -1,5 +1,6 @@
 # Convolo — Deploy to Vercel (Production)
-# Triggers on push to main after CI passes
+# Only runs when VERCEL_TOKEN secret is configured
+# To set up: GitHub → Repo Settings → Secrets → Actions → Add VERCEL_TOKEN
 
 name: Deploy Production
 
@@ -16,6 +17,8 @@ jobs:
     name: Deploy to Vercel
     runs-on: ubuntu-latest
     environment: production
+    # Skip if Vercel token is not configured yet
+    if: ${{ secrets.VERCEL_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
 
