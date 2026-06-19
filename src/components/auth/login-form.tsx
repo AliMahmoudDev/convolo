@@ -1,15 +1,16 @@
 "use client";
 
-import { useState } from "react";
-import { signIn } from "next-auth/react";
+import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { useState } from "react";
 import { Mail, Lock, Eye, EyeOff, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SocialAuthButtons } from "@/components/auth/social-auth-buttons";
 
 export function LoginForm() {
   const router = useRouter();
+  const supabase = createClient();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -22,14 +23,13 @@ export function LoginForm() {
     setLoading(true);
 
     try {
-      const result = await signIn("credentials", {
+      const { error: authError } = await supabase.auth.signInWithPassword({
         email,
         password,
-        redirect: false,
       });
 
-      if (result?.error) {
-        setError("Invalid email or password. Please try again.");
+      if (authError) {
+        setError(authError.message || "Invalid email or password.");
         return;
       }
 
@@ -143,10 +143,8 @@ export function LoginForm() {
         </div>
       </div>
 
-      {/* Social Login */}
       <SocialAuthButtons />
 
-      {/* Sign Up Link */}
       <p className="mt-8 text-center text-sm text-[var(--text-secondary)]">
         Don&apos;t have an account?{" "}
         <Link

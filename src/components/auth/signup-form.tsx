@@ -1,15 +1,16 @@
 "use client";
 
-import { useState } from "react";
-import { signIn } from "next-auth/react";
+import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { useState } from "react";
 import { Mail, Lock, Eye, EyeOff, Loader2, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SocialAuthButtons } from "@/components/auth/social-auth-buttons";
 
 export function SignupForm() {
   const router = useRouter();
+  const supabase = createClient();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -22,7 +23,6 @@ export function SignupForm() {
     e.preventDefault();
     setError("");
 
-    // Client-side validation
     if (password.length < 8) {
       setError("Password must be at least 8 characters");
       return;
@@ -35,30 +35,16 @@ export function SignupForm() {
     setLoading(true);
 
     try {
-      // Register the user
-      const res = await fetch("/api/auth/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, password }),
-      });
-
-      const data = await res.json();
-
-      if (!data.success) {
-        setError(data.error?.message ?? "Registration failed. Please try again.");
-        return;
-      }
-
-      // Auto sign-in after successful registration
-      const result = await signIn("credentials", {
+      const { error: authError } = await supabase.auth.signUp({
         email,
         password,
-        redirect: false,
+        options: {
+          data: { name },
+        },
       });
 
-      if (result?.error) {
-        // Registration succeeded but auto-login failed — redirect to login
-        router.push("/login");
+      if (authError) {
+        setError(authError.message || "Registration failed. Please try again.");
         return;
       }
 
@@ -211,7 +197,6 @@ export function SignupForm() {
         </div>
       </div>
 
-      {/* Social Login */}
       <SocialAuthButtons />
 
       {/* Terms */}
@@ -232,7 +217,6 @@ export function SignupForm() {
         </Link>
       </p>
 
-      {/* Login Link */}
       <p className="mt-4 text-center text-sm text-[var(--text-secondary)]">
         Already have an account?{" "}
         <Link
