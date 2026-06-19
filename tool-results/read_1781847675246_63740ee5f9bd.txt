@@ -1,0 +1,931 @@
+     1→"use client";
+     2→
+     3→import { useState, useEffect, useRef } from "react";
+     4→import { motion, useInView, AnimatePresence } from "framer-motion";
+     5→import {
+     6→  MessageSquare,
+     7→  SpellCheck,
+     8→  Globe,
+     9→  BarChart3,
+    10→  BookOpen,
+    11→  Brain,
+    12→  ArrowRight,
+    13→  Check,
+    14→  X,
+    15→  Star,
+    16→  Users,
+    17→  MessagesSquare,
+    18→  Languages,
+    19→  ChevronRight,
+    20→  Zap,
+    21→  Crown,
+    22→  Play,
+    23→  Menu,
+    24→  XIcon,
+    25→  Sparkles,
+    26→} from "lucide-react";
+    27→import { Button } from "@/components/ui/button";
+    28→import {
+    29→  Accordion,
+    30→  AccordionContent,
+    31→  AccordionItem,
+    32→  AccordionTrigger,
+    33→} from "@/components/ui/accordion";
+    34→
+    35→/* ================================================================
+    36→   ANIMATED SECTION WRAPPER
+    37→   ================================================================ */
+    38→function FadeInSection({
+    39→  children,
+    40→  className,
+    41→  delay = 0,
+    42→}: {
+    43→  children: React.ReactNode;
+    44→  className?: string;
+    45→  delay?: number;
+    46→}) {
+    47→  const ref = useRef<HTMLDivElement>(null);
+    48→  const isInView = useInView(ref, { once: true, margin: "-80px" });
+    49→
+    50→  return (
+    51→    <motion.div
+    52→      ref={ref}
+    53→      initial={{ opacity: 0, y: 30 }}
+    54→      animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 30 }}
+    55→      transition={{ duration: 0.6, ease: "easeOut", delay }}
+    56→      className={className}
+    57→    >
+    58→      {children}
+    59→    </motion.div>
+    60→  );
+    61→}
+    62→
+    63→/* ================================================================
+    64→   NAVBAR
+    65→   ================================================================ */
+    66→function Navbar() {
+    67→  const [scrolled, setScrolled] = useState(false);
+    68→  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+    69→
+    70→  useEffect(() => {
+    71→    const handleScroll = () => setScrolled(window.scrollY > 20);
+    72→    window.addEventListener("scroll", handleScroll, { passive: true });
+    73→    return () => window.removeEventListener("scroll", handleScroll);
+    74→  }, []);
+    75→
+    76→  const navLinks = [
+    77→    { label: "Features", href: "#features" },
+    78→    { label: "Pricing", href: "#pricing" },
+    79→    { label: "FAQ", href: "#faq" },
+    80→  ];
+    81→
+    82→  return (
+    83→    <motion.nav
+    84→      initial={{ y: -20, opacity: 0 }}
+    85→      animate={{ y: 0, opacity: 1 }}
+    86→      transition={{ duration: 0.5, ease: "easeOut" }}
+    87→      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
+    88→        scrolled
+    89→          ? "bg-[var(--bg-base)]/80 backdrop-blur-xl border-b border-[var(--border-default)] shadow-[var(--shadow-sm)]"
+    90→          : "bg-transparent"
+    91→      }`}
+    92→    >
+    93→      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    94→        <div className="flex items-center justify-between h-16 sm:h-18">
+    95→          {/* Logo */}
+    96→          <a href="#" className="flex items-center gap-2.5 group">
+    97→            <div className="relative w-8 h-8 rounded-lg gradient-conbolo flex items-center justify-center">
+    98→              <span className="text-white font-bold text-sm leading-none">
+    99→                C
+   100→              </span>
+   101→            </div>
+   102→            <span
+   103→              className="text-xl font-bold text-[var(--text-primary)]"
+   104→              style={{ fontFamily: "var(--font-heading-cfg)" }}
+   105→            >
+   106→              Convolo
+   107→            </span>
+   108→          </a>
+   109→
+   110→          {/* Desktop Nav */}
+   111→          <div className="hidden md:flex items-center gap-8">
+   112→            {navLinks.map((link) => (
+   113→              <a
+   114→                key={link.label}
+   115→                href={link.href}
+   116→                className="text-sm font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+   117→              >
+   118→                {link.label}
+   119→              </a>
+   120→            ))}
+   121→          </div>
+   122→
+   123→          {/* Desktop Auth Buttons */}
+   124→          <div className="hidden md:flex items-center gap-3">
+   125→            <Button
+   126→              variant="ghost"
+   127→              size="sm"
+   128→              className="text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+   129→            >
+   130→              Log In
+   131→            </Button>
+   132→            <Button
+   133→              size="sm"
+   134→              className="gradient-conbolo text-white border-0 hover:opacity-90 transition-opacity rounded-lg px-5"
+   135→            >
+   136→              Sign Up Free
+   137→            </Button>
+   138→          </div>
+   139→
+   140→          {/* Mobile Menu Button */}
+   141→          <button
+   142→            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+   143→            className="md:hidden p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+   144→            aria-label="Toggle menu"
+   145→          >
+   146→            {mobileMenuOpen ? (
+   147→              <XIcon className="w-5 h-5" />
+   148→            ) : (
+   149→              <Menu className="w-5 h-5" />
+   150→            )}
+   151→          </button>
+   152→        </div>
+   153→      </div>
+   154→
+   155→      {/* Mobile Menu */}
+   156→      <AnimatePresence>
+   157→        {mobileMenuOpen && (
+   158→          <motion.div
+   159→            initial={{ opacity: 0, height: 0 }}
+   160→            animate={{ opacity: 1, height: "auto" }}
+   161→            exit={{ opacity: 0, height: 0 }}
+   162→            transition={{ duration: 0.3, ease: "easeOut" }}
+   163→            className="md:hidden border-t border-[var(--border-default)] bg-[var(--bg-base)]/95 backdrop-blur-xl"
+   164→          >
+   165→            <div className="px-4 py-4 space-y-3">
+   166→              {navLinks.map((link) => (
+   167→                <a
+   168→                  key={link.label}
+   169→                  href={link.href}
+   170→                  onClick={() => setMobileMenuOpen(false)}
+   171→                  className="block py-2 text-sm font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+   172→                >
+   173→                  {link.label}
+   174→                </a>
+   175→              ))}
+   176→              <div className="pt-3 border-t border-[var(--border-default)] flex flex-col gap-2">
+   177→                <Button
+   178→                  variant="ghost"
+   179→                  size="sm"
+   180→                  className="w-full justify-center text-[var(--text-secondary)]"
+   181→                >
+   182→                  Log In
+   183→                </Button>
+   184→                <Button
+   185→                  size="sm"
+   186→                  className="w-full gradient-conbolo text-white border-0 hover:opacity-90 transition-opacity rounded-lg"
+   187→                >
+   188→                  Sign Up Free
+   189→                </Button>
+   190→              </div>
+   191→            </div>
+   192→          </motion.div>
+   193→        )}
+   194→      </AnimatePresence>
+   195→    </motion.nav>
+   196→  );
+   197→}
+   198→
+   199→/* ================================================================
+   200→   HERO SECTION
+   201→   ================================================================ */
+   202→function HeroSection() {
+   203→  return (
+   204→    <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
+   205→      {/* Background */}
+   206→      <div className="absolute inset-0 hero-gradient-light dark:hero-gradient-dark" />
+   207→
+   208→      {/* Dot pattern overlay */}
+   209→      <div className="absolute inset-0 dot-pattern opacity-30 dark:opacity-20" />
+   210→
+   211→      {/* Gradient orb accents */}
+   212→      <div className="absolute top-1/4 -left-32 w-96 h-96 rounded-full bg-[var(--accent-primary)] opacity-10 blur-[120px]" />
+   213→      <div className="absolute bottom-1/4 -right-32 w-96 h-96 rounded-full bg-[var(--accent-secondary)] opacity-10 blur-[120px]" />
+   214→
+   215→      <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-24 pb-16 sm:pt-32 sm:pb-24 text-center">
+   216→        {/* Badge */}
+   217→        <motion.div
+   218→          initial={{ opacity: 0, y: 20 }}
+   219→          animate={{ opacity: 1, y: 0 }}
+   220→          transition={{ duration: 0.5, delay: 0.2 }}
+   221→        >
+   222→          <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-[var(--border-default)] bg-[var(--bg-surface)]/60 backdrop-blur-sm text-xs font-medium text-[var(--text-secondary)] mb-8">
+   223→            <Sparkles className="w-3.5 h-3.5 text-[var(--accent-primary)]" />
+   224→            Now in Public Beta
+   225→          </span>
+   226→        </motion.div>
+   227→
+   228→        {/* Headline */}
+   229→        <motion.h1
+   230→          initial={{ opacity: 0, y: 20 }}
+   231→          animate={{ opacity: 1, y: 0 }}
+   232→          transition={{ duration: 0.6, delay: 0.3 }}
+   233→          className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-extrabold leading-[1.1] tracking-tight text-[var(--text-primary)] mb-6"
+   234→          style={{ fontFamily: "var(--font-heading-cfg)" }}
+   235→        >
+   236→          Unlock Fluency Through
+   237→          <br />
+   238→          <span className="gradient-conbolo-text">Real Conversations</span>
+   239→        </motion.h1>
+   240→
+   241→        {/* Subtitle */}
+   242→        <motion.p
+   243→          initial={{ opacity: 0, y: 20 }}
+   244→          animate={{ opacity: 1, y: 0 }}
+   245→          transition={{ duration: 0.6, delay: 0.4 }}
+   246→          className="max-w-2xl mx-auto text-lg sm:text-xl text-[var(--text-secondary)] leading-relaxed mb-10"
+   247→          style={{ fontFamily: "var(--font-body)" }}
+   248→        >
+   249→          Stop memorizing flashcards. Start having real conversations with an AI
+   250→          tutor that adapts to your level, corrects your mistakes, and helps you
+   251→          build confidence — one chat at a time.
+   252→        </motion.p>
+   253→
+   254→        {/* CTA Buttons */}
+   255→        <motion.div
+   256→          initial={{ opacity: 0, y: 20 }}
+   257→          animate={{ opacity: 1, y: 0 }}
+   258→          transition={{ duration: 0.6, delay: 0.5 }}
+   259→          className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16"
+   260→        >
+   261→          <Button
+   262→            size="lg"
+   263→            className="gradient-conbolo text-white border-0 hover:opacity-90 transition-all rounded-xl px-8 h-12 text-base font-semibold shadow-[var(--shadow-glow)]"
+   264→          >
+   265→            Start Learning Free
+   266→            <ArrowRight className="w-4 h-4 ml-1" />
+   267→          </Button>
+   268→          <Button
+   269→            variant="outline"
+   270→            size="lg"
+   271→            className="rounded-xl px-8 h-12 text-base font-medium border-[var(--border-default)] hover:bg-[var(--bg-elevated)] transition-all"
+   272→          >
+   273→            <Play className="w-4 h-4 mr-1" />
+   274→            Watch Demo
+   275→          </Button>
+   276→        </motion.div>
+   277→
+   278→        {/* Social Proof Bar */}
+   279→        <motion.div
+   280→          initial={{ opacity: 0, y: 20 }}
+   281→          animate={{ opacity: 1, y: 0 }}
+   282→          transition={{ duration: 0.6, delay: 0.6 }}
+   283→          className="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-8 max-w-3xl mx-auto"
+   284→        >
+   285→          {[
+   286→            {
+   287→              icon: Users,
+   288→              value: "10,000+",
+   289→              label: "Learners",
+   290→            },
+   291→            {
+   292→              icon: MessagesSquare,
+   293→              value: "500K+",
+   294→              label: "Conversations",
+   295→            },
+   296→            {
+   297→              icon: Languages,
+   298→              value: "4",
+   299→              label: "Languages (More Soon)",
+   300→            },
+   301→            {
+   302→              icon: Star,
+   303→              value: "4.9/5",
+   304→              label: "Rating",
+   305→            },
+   306→          ].map((stat, i) => (
+   307→            <div key={i} className="flex flex-col items-center gap-1">
+   308→              <stat.icon className="w-5 h-5 text-[var(--accent-primary)] mb-1" />
+   309→              <span
+   310→                className="text-xl sm:text-2xl font-bold text-[var(--text-primary)]"
+   311→                style={{ fontFamily: "var(--font-heading-cfg)" }}
+   312→              >
+   313→                {stat.value}
+   314→              </span>
+   315→              <span className="text-xs sm:text-sm text-[var(--text-muted)]">
+   316→                {stat.label}
+   317→              </span>
+   318→            </div>
+   319→          ))}
+   320→        </motion.div>
+   321→      </div>
+   322→    </section>
+   323→  );
+   324→}
+   325→
+   326→/* ================================================================
+   327→   FEATURES SECTION
+   328→   ================================================================ */
+   329→const features = [
+   330→  {
+   331→    icon: MessageSquare,
+   332→    title: "AI Conversations",
+   333→    description:
+   334→      "Practice real dialogues with an intelligent AI tutor that responds naturally and keeps the conversation flowing.",
+   335→  },
+   336→  {
+   337→    icon: SpellCheck,
+   338→    title: "Instant Corrections",
+   339→    description:
+   340→      "Get real-time grammar, vocabulary, and phrasing corrections — explained in context, not just marked wrong.",
+   341→  },
+   342→  {
+   343→    icon: Globe,
+   344→    title: "Real-World Scenarios",
+   345→    description:
+   346→      "From ordering coffee to business meetings — practice the situations you'll actually face.",
+   347→  },
+   348→  {
+   349→    icon: BarChart3,
+   350→    title: "Track Your Progress",
+   351→    description:
+   352→      "Watch your fluency grow with detailed analytics, streaks, and achievements that keep you motivated.",
+   353→  },
+   354→  {
+   355→    icon: BookOpen,
+   356→    title: "Smart Vocabulary Book",
+   357→    description:
+   358→      "Words you encounter are automatically saved with spaced repetition to make them stick forever.",
+   359→  },
+   360→  {
+   361→    icon: Brain,
+   362→    title: "Adaptive Difficulty",
+   363→    description:
+   364→      "The AI adjusts to your level in real-time — challenging enough to grow, easy enough to keep going.",
+   365→  },
+   366→];
+   367→
+   368→function FeaturesSection() {
+   369→  return (
+   370→    <section id="features" className="py-20 sm:py-28 bg-[var(--bg-surface)]">
+   371→      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+   372→        <FadeInSection className="text-center mb-16">
+   373→          <h2
+   374→            className="text-3xl sm:text-4xl md:text-5xl font-bold text-[var(--text-primary)] mb-4"
+   375→            style={{ fontFamily: "var(--font-heading-cfg)" }}
+   376→          >
+   377→            Everything You Need to{" "}
+   378→            <span className="gradient-conbolo-text">Speak Fluently</span>
+   379→          </h2>
+   380→          <p className="max-w-2xl mx-auto text-lg text-[var(--text-secondary)]">
+   381→            Powerful features designed to make language learning feel natural,
+   382→            effective, and actually enjoyable.
+   383→          </p>
+   384→        </FadeInSection>
+   385→
+   386→        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+   387→          {features.map((feature, i) => (
+   388→            <FadeInSection key={feature.title} delay={i * 0.1}>
+   389→              <div className="group relative h-full p-6 rounded-2xl border border-[var(--border-default)] bg-[var(--bg-base)] hover:border-[var(--accent-primary)]/30 hover:shadow-[var(--shadow-md)] transition-all duration-300 hover:-translate-y-0.5">
+   390→                <div className="w-12 h-12 rounded-xl gradient-conbolo flex items-center justify-center mb-5 group-hover:shadow-[var(--shadow-glow)] transition-shadow duration-300">
+   391→                  <feature.icon className="w-6 h-6 text-white" />
+   392→                </div>
+   393→                <h3
+   394→                  className="text-xl font-semibold text-[var(--text-primary)] mb-3"
+   395→                  style={{ fontFamily: "var(--font-heading-cfg)" }}
+   396→                >
+   397→                  {feature.title}
+   398→                </h3>
+   399→                <p className="text-[var(--text-secondary)] leading-relaxed text-sm">
+   400→                  {feature.description}
+   401→                </p>
+   402→              </div>
+   403→            </FadeInSection>
+   404→          ))}
+   405→        </div>
+   406→      </div>
+   407→    </section>
+   408→  );
+   409→}
+   410→
+   411→/* ================================================================
+   412→   HOW IT WORKS SECTION
+   413→   ================================================================ */
+   414→const steps = [
+   415→  {
+   416→    step: 1,
+   417→    icon: Languages,
+   418→    title: "Pick Your Languages",
+   419→    description: "Choose your native language and target language",
+   420→  },
+   421→  {
+   422→    step: 2,
+   423→    icon: MessageSquare,
+   424→    title: "Start Talking",
+   425→    description: "Jump into a conversation with your AI tutor",
+   426→  },
+   427→  {
+   428→    step: 3,
+   429→    icon: SpellCheck,
+   430→    title: "Get Feedback",
+   431→    description: "Receive instant corrections and vocabulary",
+   432→  },
+   433→  {
+   434→    step: 4,
+   435→    icon: Zap,
+   436→    title: "Level Up",
+   437→    description: "Track progress and unlock achievements",
+   438→  },
+   439→];
+   440→
+   441→function HowItWorksSection() {
+   442→  return (
+   443→    <section className="py-20 sm:py-28 bg-[var(--bg-base)]">
+   444→      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+   445→        <FadeInSection className="text-center mb-16">
+   446→          <h2
+   447→            className="text-3xl sm:text-4xl md:text-5xl font-bold text-[var(--text-primary)] mb-4"
+   448→            style={{ fontFamily: "var(--font-heading-cfg)" }}
+   449→          >
+   450→            How It{" "}
+   451→            <span className="gradient-conbolo-text">Works</span>
+   452→          </h2>
+   453→          <p className="max-w-xl mx-auto text-lg text-[var(--text-secondary)]">
+   454→            From zero to fluent in four simple steps.
+   455→          </p>
+   456→        </FadeInSection>
+   457→
+   458→        <div className="grid grid-cols-1 md:grid-cols-4 gap-8 md:gap-4 relative">
+   459→          {/* Connecting Line (desktop only) */}
+   460→          <div className="hidden md:block absolute top-16 left-[12.5%] right-[12.5%] h-[2px] bg-gradient-to-r from-[var(--accent-primary)] via-[var(--accent-secondary)] to-[var(--color-gold)]" />
+   461→
+   462→          {steps.map((step, i) => (
+   463→            <FadeInSection key={step.step} delay={i * 0.15}>
+   464→              <div className="relative flex flex-col items-center text-center">
+   465→                {/* Step Circle */}
+   466→                <div className="relative z-10 w-16 h-16 rounded-2xl gradient-conbolo flex items-center justify-center mb-5 shadow-[var(--shadow-glow)]">
+   467→                  <step.icon className="w-7 h-7 text-white" />
+   468→                </div>
+   469→
+   470→                {/* Step Number Badge */}
+   471→                <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-[var(--bg-elevated)] border border-[var(--border-default)] text-xs font-semibold text-[var(--text-muted)] mb-3">
+   472→                  {step.step}
+   473→                </span>
+   474→
+   475→                <h3
+   476→                  className="text-lg font-semibold text-[var(--text-primary)] mb-2"
+   477→                  style={{ fontFamily: "var(--font-heading-cfg)" }}
+   478→                >
+   479→                  {step.title}
+   480→                </h3>
+   481→                <p className="text-sm text-[var(--text-secondary)] max-w-[200px]">
+   482→                  {step.description}
+   483→                </p>
+   484→              </div>
+   485→            </FadeInSection>
+   486→          ))}
+   487→        </div>
+   488→      </div>
+   489→    </section>
+   490→  );
+   491→}
+   492→
+   493→/* ================================================================
+   494→   PRICING SECTION
+   495→   ================================================================ */
+   496→const pricingPlans = [
+   497→  {
+   498→    name: "Free",
+   499→    price: "$0",
+   500→    period: "/month",
+   501→    cta: "Get Started",
+   502→    highlight: false,
+   503→    features: [
+   504→      { text: "3 conversations/day", included: true },
+   505→      { text: "Basic scenarios", included: true },
+   506→      { text: "Limited vocabulary book", included: true },
+   507→      { text: "Basic progress tracking", included: true },
+   508→      { text: "Priority AI responses", included: false },
+   509→      { text: "Early access to new features", included: false },
+   510→    ],
+   511→  },
+   512→  {
+   513→    name: "Pro",
+   514→    price: "$9.99",
+   515→    period: "/month",
+   516→    yearlyPrice: "$79.99/year",
+   517→    cta: "Start Pro Trial",
+   518→    highlight: true,
+   519→    features: [
+   520→      { text: "Unlimited conversations", included: true },
+   521→      { text: "All scenarios including premium", included: true },
+   522→      { text: "Full vocabulary book + SRS", included: true },
+   523→      { text: "Detailed analytics & reports", included: true },
+   524→      { text: "Priority AI responses", included: true },
+   525→      { text: "Early access to new features", included: true },
+   526→    ],
+   527→  },
+   528→];
+   529→
+   530→function PricingSection() {
+   531→  return (
+   532→    <section
+   533→      id="pricing"
+   534→      className="py-20 sm:py-28 bg-[var(--bg-surface)]"
+   535→    >
+   536→      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+   537→        <FadeInSection className="text-center mb-16">
+   538→          <h2
+   539→            className="text-3xl sm:text-4xl md:text-5xl font-bold text-[var(--text-primary)] mb-4"
+   540→            style={{ fontFamily: "var(--font-heading-cfg)" }}
+   541→          >
+   542→            Simple,{" "}
+   543→            <span className="gradient-conbolo-text">Transparent</span> Pricing
+   544→          </h2>
+   545→          <p className="max-w-xl mx-auto text-lg text-[var(--text-secondary)]">
+   546→            Start free, upgrade when you&apos;re ready. No hidden fees, cancel
+   547→            anytime.
+   548→          </p>
+   549→        </FadeInSection>
+   550→
+   551→        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+   552→          {pricingPlans.map((plan, i) => (
+   553→            <FadeInSection key={plan.name} delay={i * 0.15}>
+   554→              <div
+   555→                className={`relative h-full rounded-2xl p-[2px] ${
+   556→                  plan.highlight
+   557→                    ? "gradient-conbolo"
+   558→                    : "bg-[var(--border-default)]"
+   559→                }`}
+   560→              >
+   561→                {/* Popular badge for Pro */}
+   562→                {plan.highlight && (
+   563→                  <div className="absolute -top-4 left-1/2 -translate-x-1/2 z-10">
+   564→                    <span className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full gradient-conbolo text-white text-xs font-semibold shadow-[var(--shadow-glow)]">
+   565→                      <Crown className="w-3.5 h-3.5" />
+   566→                      Most Popular
+   567→                    </span>
+   568→                  </div>
+   569→                )}
+   570→
+   571→                <div className="h-full rounded-[14px] bg-[var(--bg-surface)] p-6 sm:p-8 flex flex-col">
+   572→                  <div className="mb-6">
+   573→                    <h3
+   574→                      className="text-xl font-semibold text-[var(--text-primary)] mb-1"
+   575→                      style={{ fontFamily: "var(--font-heading-cfg)" }}
+   576→                    >
+   577→                      {plan.name}
+   578→                    </h3>
+   579→                    <div className="flex items-baseline gap-1">
+   580→                      <span
+   581→                        className="text-4xl sm:text-5xl font-bold text-[var(--text-primary)]"
+   582→                        style={{ fontFamily: "var(--font-heading-cfg)" }}
+   583→                      >
+   584→                        {plan.price}
+   585→                      </span>
+   586→                      <span className="text-[var(--text-muted)] text-sm">
+   587→                        {plan.period}
+   588→                      </span>
+   589→                    </div>
+   590→                    {"yearlyPrice" in plan && (
+   591→                      <p className="mt-1 text-sm text-[var(--accent-secondary)] font-medium">
+   592→                        or {plan.yearlyPrice}
+   593→                      </p>
+   594→                    )}
+   595→                  </div>
+   596→
+   597→                  <ul className="space-y-3 mb-8 flex-1">
+   598→                    {plan.features.map((feature) => (
+   599→                      <li
+   600→                        key={feature.text}
+   601→                        className="flex items-start gap-3"
+   602→                      >
+   603→                        {feature.included ? (
+   604→                          <Check className="w-5 h-5 text-[var(--state-success)] shrink-0 mt-0.5" />
+   605→                        ) : (
+   606→                          <X className="w-5 h-5 text-[var(--text-muted)] shrink-0 mt-0.5" />
+   607→                        )}
+   608→                        <span
+   609→                          className={`text-sm ${
+   610→                            feature.included
+   611→                              ? "text-[var(--text-primary)]"
+   612→                              : "text-[var(--text-muted)]"
+   613→                          }`}
+   614→                        >
+   615→                          {feature.text}
+   616→                        </span>
+   617→                      </li>
+   618→                    ))}
+   619→                  </ul>
+   620→
+   621→                  <Button
+   622→                    size="lg"
+   623→                    className={`w-full rounded-xl h-12 text-base font-semibold ${
+   624→                      plan.highlight
+   625→                        ? "gradient-conbolo text-white border-0 hover:opacity-90 transition-opacity shadow-[var(--shadow-glow)]"
+   626→                        : "bg-[var(--bg-elevated)] text-[var(--text-primary)] hover:bg-[var(--border-default)] border border-[var(--border-default)]"
+   627→                    }`}
+   628→                  >
+   629→                    {plan.cta}
+   630→                    <ChevronRight className="w-4 h-4" />
+   631→                  </Button>
+   632→                </div>
+   633→              </div>
+   634→            </FadeInSection>
+   635→          ))}
+   636→        </div>
+   637→      </div>
+   638→    </section>
+   639→  );
+   640→}
+   641→
+   642→/* ================================================================
+   643→   FAQ SECTION
+   644→   ================================================================ */
+   645→const faqs = [
+   646→  {
+   647→    question: "How does Convolo teach languages?",
+   648→    answer:
+   649→      "Unlike traditional apps, Convolo focuses on real conversation practice with an AI tutor that adapts to your level and provides instant, contextual feedback.",
+   650→  },
+   651→  {
+   652→    question: "Can I use Convolo as a complete beginner?",
+   653→    answer:
+   654→      "Yes! Our AI adjusts to any level. Beginners start with simple exchanges and gradually build complexity.",
+   655→  },
+   656→  {
+   657→    question: "What languages are available?",
+   658→    answer:
+   659→      "Currently: Arabic, English, Spanish, and French — in any combination. More languages coming soon!",
+   660→  },
+   661→  {
+   662→    question: "Is my conversation data private?",
+   663→    answer:
+   664→      "Absolutely. Your conversations are encrypted and never shared. You can delete your data anytime.",
+   665→  },
+   666→  {
+   667→    question: "Can I cancel my subscription anytime?",
+   668→    answer:
+   669→      "Yes, cancel anytime from your settings. You'll keep Pro access until your current period ends.",
+   670→  },
+   671→];
+   672→
+   673→function FAQSection() {
+   674→  return (
+   675→    <section id="faq" className="py-20 sm:py-28 bg-[var(--bg-base)]">
+   676→      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+   677→        <FadeInSection className="text-center mb-12">
+   678→          <h2
+   679→            className="text-3xl sm:text-4xl md:text-5xl font-bold text-[var(--text-primary)] mb-4"
+   680→            style={{ fontFamily: "var(--font-heading-cfg)" }}
+   681→          >
+   682→            Frequently Asked{" "}
+   683→            <span className="gradient-conbolo-text">Questions</span>
+   684→          </h2>
+   685→          <p className="text-lg text-[var(--text-secondary)]">
+   686→            Got questions? We&apos;ve got answers.
+   687→          </p>
+   688→        </FadeInSection>
+   689→
+   690→        <FadeInSection>
+   691→          <div className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-2">
+   692→            <Accordion type="single" collapsible className="w-full">
+   693→              {faqs.map((faq, i) => (
+   694→                <AccordionItem
+   695→                  key={i}
+   696→                  value={`faq-${i}`}
+   697→                  className="border-[var(--border-default)] last:border-b-0 px-4"
+   698→                >
+   699→                  <AccordionTrigger className="text-left text-[15px] font-medium text-[var(--text-primary)] hover:text-[var(--accent-primary)] hover:no-underline">
+   700→                    {faq.question}
+   701→                  </AccordionTrigger>
+   702→                  <AccordionContent className="text-[var(--text-secondary)] text-sm leading-relaxed">
+   703→                    {faq.answer}
+   704→                  </AccordionContent>
+   705→                </AccordionItem>
+   706→              ))}
+   707→            </Accordion>
+   708→          </div>
+   709→        </FadeInSection>
+   710→      </div>
+   711→    </section>
+   712→  );
+   713→}
+   714→
+   715→/* ================================================================
+   716→   CTA SECTION
+   717→   ================================================================ */
+   718→function CTASection() {
+   719→  return (
+   720→    <section className="py-20 sm:py-28 relative overflow-hidden">
+   721→      {/* Gradient background */}
+   722→      <div className="absolute inset-0 gradient-conbolo" />
+   723→
+   724→      {/* Decorative elements */}
+   725→      <div className="absolute inset-0 dot-pattern opacity-10" />
+   726→      <div className="absolute top-0 left-1/4 w-72 h-72 rounded-full bg-white opacity-5 blur-[100px]" />
+   727→      <div className="absolute bottom-0 right-1/4 w-72 h-72 rounded-full bg-white opacity-5 blur-[100px]" />
+   728→
+   729→      <div className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+   730→        <FadeInSection>
+   731→          <h2
+   732→            className="text-3xl sm:text-4xl md:text-5xl font-bold text-white mb-5"
+   733→            style={{ fontFamily: "var(--font-heading-cfg)" }}
+   734→          >
+   735→            Ready to Start Speaking?
+   736→          </h2>
+   737→          <p className="text-lg sm:text-xl text-white/80 mb-10 max-w-xl mx-auto">
+   738→            Join thousands of learners building fluency through real practice.
+   739→          </p>
+   740→          <Button
+   741→            size="lg"
+   742→            className="bg-white text-[var(--accent-primary)] hover:bg-white/90 rounded-xl px-10 h-14 text-base font-bold shadow-lg hover:shadow-xl transition-all"
+   743→          >
+   744→            Start Your Free Account
+   745→            <ArrowRight className="w-5 h-5 ml-1" />
+   746→          </Button>
+   747→        </FadeInSection>
+   748→      </div>
+   749→    </section>
+   750→  );
+   751→}
+   752→
+   753→/* ================================================================
+   754→   FOOTER
+   755→   ================================================================ */
+   756→function Footer() {
+   757→  return (
+   758→    <footer className="bg-[var(--bg-surface)] border-t border-[var(--border-default)]">
+   759→      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
+   760→        <div className="grid grid-cols-1 md:grid-cols-4 gap-10 mb-12">
+   761→          {/* Brand Column */}
+   762→          <div className="md:col-span-1">
+   763→            <a href="#" className="flex items-center gap-2.5 mb-4">
+   764→              <div className="w-8 h-8 rounded-lg gradient-conbolo flex items-center justify-center">
+   765→                <span className="text-white font-bold text-sm leading-none">
+   766→                  C
+   767→                </span>
+   768→              </div>
+   769→              <span
+   770→                className="text-xl font-bold text-[var(--text-primary)]"
+   771→                style={{ fontFamily: "var(--font-heading-cfg)" }}
+   772→              >
+   773→                Convolo
+   774→              </span>
+   775→            </a>
+   776→            <p className="text-sm text-[var(--text-secondary)] leading-relaxed max-w-[240px]">
+   777→              Conversation, Unlocked. Master any language through real
+   778→              conversations with AI.
+   779→            </p>
+   780→          </div>
+   781→
+   782→          {/* Product */}
+   783→          <div>
+   784→            <h4
+   785→              className="text-sm font-semibold text-[var(--text-primary)] mb-4"
+   786→              style={{ fontFamily: "var(--font-heading-cfg)" }}
+   787→            >
+   788→              Product
+   789→            </h4>
+   790→            <ul className="space-y-2.5">
+   791→              {["Features", "Pricing", "FAQ"].map((item) => (
+   792→                <li key={item}>
+   793→                  <a
+   794→                    href={`#${item.toLowerCase()}`}
+   795→                    className="text-sm text-[var(--text-secondary)] hover:text-[var(--accent-primary)] transition-colors"
+   796→                  >
+   797→                    {item}
+   798→                  </a>
+   799→                </li>
+   800→              ))}
+   801→            </ul>
+   802→          </div>
+   803→
+   804→          {/* Company */}
+   805→          <div>
+   806→            <h4
+   807→              className="text-sm font-semibold text-[var(--text-primary)] mb-4"
+   808→              style={{ fontFamily: "var(--font-heading-cfg)" }}
+   809→            >
+   810→              Company
+   811→            </h4>
+   812→            <ul className="space-y-2.5">
+   813→              {["About", "Blog", "Careers", "Contact"].map((item) => (
+   814→                <li key={item}>
+   815→                  <a
+   816→                    href="#"
+   817→                    className="text-sm text-[var(--text-secondary)] hover:text-[var(--accent-primary)] transition-colors"
+   818→                  >
+   819→                    {item}
+   820→                  </a>
+   821→                </li>
+   822→              ))}
+   823→            </ul>
+   824→          </div>
+   825→
+   826→          {/* Legal */}
+   827→          <div>
+   828→            <h4
+   829→              className="text-sm font-semibold text-[var(--text-primary)] mb-4"
+   830→              style={{ fontFamily: "var(--font-heading-cfg)" }}
+   831→            >
+   832→              Legal
+   833→            </h4>
+   834→            <ul className="space-y-2.5">
+   835→              {["Privacy Policy", "Terms of Service", "Cookie Policy"].map(
+   836→                (item) => (
+   837→                  <li key={item}>
+   838→                    <a
+   839→                      href="#"
+   840→                      className="text-sm text-[var(--text-secondary)] hover:text-[var(--accent-primary)] transition-colors"
+   841→                    >
+   842→                      {item}
+   843→                    </a>
+   844→                  </li>
+   845→                )
+   846→              )}
+   847→            </ul>
+   848→          </div>
+   849→        </div>
+   850→
+   851→        {/* Bottom bar */}
+   852→        <div className="pt-8 border-t border-[var(--border-default)] flex flex-col sm:flex-row items-center justify-between gap-4">
+   853→          <p className="text-sm text-[var(--text-muted)]">
+   854→            &copy; {new Date().getFullYear()} Convolo. All rights reserved.
+   855→          </p>
+   856→          <div className="flex items-center gap-5">
+   857→            {/* Social Icons */}
+   858→            {[
+   859→              {
+   860→                label: "Twitter",
+   861→                icon: (
+   862→                  <svg
+   863→                    className="w-5 h-5"
+   864→                    fill="currentColor"
+   865→                    viewBox="0 0 24 24"
+   866→                  >
+   867→                    <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+   868→                  </svg>
+   869→                ),
+   870→              },
+   871→              {
+   872→                label: "GitHub",
+   873→                icon: (
+   874→                  <svg
+   875→                    className="w-5 h-5"
+   876→                    fill="currentColor"
+   877→                    viewBox="0 0 24 24"
+   878→                  >
+   879→                    <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
+   880→                  </svg>
+   881→                ),
+   882→              },
+   883→              {
+   884→                label: "LinkedIn",
+   885→                icon: (
+   886→                  <svg
+   887→                    className="w-5 h-5"
+   888→                    fill="currentColor"
+   889→                    viewBox="0 0 24 24"
+   890→                  >
+   891→                    <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" />
+   892→                  </svg>
+   893→                ),
+   894→              },
+   895→            ].map((social) => (
+   896→              <a
+   897→                key={social.label}
+   898→                href="#"
+   899→                className="text-[var(--text-muted)] hover:text-[var(--accent-primary)] transition-colors"
+   900→                aria-label={social.label}
+   901→              >
+   902→                {social.icon}
+   903→              </a>
+   904→            ))}
+   905→          </div>
+   906→        </div>
+   907→      </div>
+   908→    </footer>
+   909→  );
+   910→}
+   911→
+   912→/* ================================================================
+   913→   MAIN PAGE
+   914→   ================================================================ */
+   915→export default function Home() {
+   916→  return (
+   917→    <div className="min-h-screen flex flex-col">
+   918→      <Navbar />
+   919→      <main className="flex-1">
+   920→        <HeroSection />
+   921→        <FeaturesSection />
+   922→        <HowItWorksSection />
+   923→        <PricingSection />
+   924→        <FAQSection />
+   925→        <CTASection />
+   926→      </main>
+   927→      <Footer />
+   928→    </div>
+   929→  );
+   930→}
+   931→

@@ -1,0 +1,229 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ===== Convolo Design Tokens ===== */
+@theme inline {
+  --color-background: var(--bg-base);
+  --color-foreground: var(--text-primary);
+  --font-sans: var(--font-body);
+  --font-mono: var(--font-mono-cfg);
+  --font-heading: var(--font-heading-cfg);
+
+  /* shadcn/ui token mapping */
+  --color-card: var(--bg-surface);
+  --color-card-foreground: var(--text-primary);
+  --color-popover: var(--bg-surface);
+  --color-popover-foreground: var(--text-primary);
+  --color-primary: var(--accent-primary);
+  --color-primary-foreground: #FFFFFF;
+  --color-secondary: var(--bg-elevated);
+  --color-secondary-foreground: var(--text-primary);
+  --color-muted: var(--bg-elevated);
+  --color-muted-foreground: var(--text-muted);
+  --color-accent: var(--accent-light);
+  --color-accent-foreground: var(--text-primary);
+  --color-destructive: var(--state-error);
+  --color-border: var(--border-default);
+  --color-input: var(--border-default);
+  --color-ring: var(--accent-primary);
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  /* Sidebar tokens */
+  --color-sidebar-ring: var(--border-default);
+  --color-sidebar-border: var(--border-default);
+  --color-sidebar-accent-foreground: var(--text-primary);
+  --color-sidebar-accent: var(--bg-elevated);
+  --color-sidebar-primary-foreground: #FFFFFF;
+  --color-sidebar-primary: var(--accent-primary);
+  --color-sidebar-foreground: var(--text-primary);
+  --color-sidebar: var(--bg-surface);
+
+  /* Chart tokens */
+  --color-chart-1: var(--accent-primary);
+  --color-chart-2: var(--accent-secondary);
+  --color-chart-3: var(--color-gold);
+  --color-chart-4: var(--state-success);
+  --color-chart-5: var(--state-error);
+}
+
+/* ===== Light Mode (Default) ===== */
+:root {
+  /* Convolo brand tokens */
+  --bg-base: #FFFFFF;
+  --bg-surface: #F8FAFC;
+  --bg-elevated: #F1F5F9;
+  --text-primary: #0F172A;
+  --text-secondary: #475569;
+  --text-muted: #94A3B8;
+  --accent-primary: #6C5CE7;
+  --accent-hover: #5A4BD1;
+  --accent-light: #EDE9FE;
+  --accent-secondary: #00D2FF;
+  --accent-secondary-light: #E0F7FF;
+  --color-gold: #FFB800;
+  --color-gold-light: #FFF5D4;
+  --border-default: #E2E8F0;
+  --state-error: #EF4444;
+  --state-error-light: #FEF2F2;
+  --state-success: #10B981;
+  --state-warning: #F59E0B;
+
+  /* Chat tokens */
+  --chat-user-bg: #6C5CE7;
+  --chat-user-text: #FFFFFF;
+  --chat-ai-bg: var(--bg-elevated);
+  --chat-ai-text: var(--text-primary);
+  --chat-correction: var(--state-error);
+  --chat-correction-bg: var(--state-error-light);
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07);
+  --shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.1);
+  --shadow-glow: 0 0 20px rgba(108, 92, 231, 0.3);
+  --shadow-glow-cyan: 0 0 20px rgba(0, 210, 255, 0.3);
+
+  /* Spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
+}
+
+/* ===== Dark Mode ===== */
+.dark {
+  --bg-base: #0B0B1A;
+  --bg-surface: #12122A;
+  --bg-elevated: #1A1A3E;
+  --text-primary: #F1F5F9;
+  --text-secondary: #CBD5E1;
+  --text-muted: #64748B;
+  --accent-primary: #7C6CF0;
+  --accent-hover: #9D8FF5;
+  --accent-light: #2D2B55;
+  --accent-secondary: #00D2FF;
+  --accent-secondary-light: #0D2137;
+  --color-gold: #FFB800;
+  --color-gold-light: #2A2000;
+  --border-default: #2D2D5E;
+  --state-error: #F87171;
+  --state-error-light: #3B1111;
+  --state-success: #34D399;
+  --state-warning: #FBBF24;
+
+  --chat-user-bg: #6C5CE7;
+  --chat-user-text: #FFFFFF;
+  --chat-ai-bg: var(--bg-elevated);
+  --chat-ai-text: var(--text-primary);
+  --chat-correction: var(--state-error);
+  --chat-correction-bg: var(--state-error-light);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.5);
+  --shadow-glow: 0 0 20px rgba(108, 92, 231, 0.4);
+  --shadow-glow-cyan: 0 0 20px rgba(0, 210, 255, 0.4);
+}
+
+/* ===== Base Styles ===== */
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* ===== Gradient Utilities ===== */
+.gradient-conbolo {
+  background: linear-gradient(135deg, #6C5CE7, #00D2FF);
+}
+
+.gradient-achievement {
+  background: linear-gradient(135deg, #FFB800, #FF8C00);
+}
+
+.gradient-dark {
+  background: linear-gradient(135deg, #0B0B1A, #1A1A3E);
+}
+
+.gradient-conbolo-text {
+  background: linear-gradient(135deg, #6C5CE7, #00D2FF);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Gradient border for Pro card */
+.gradient-border {
+  position: relative;
+  background: var(--bg-surface);
+  border-radius: 16px;
+}
+.gradient-border::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #6C5CE7, #00D2FF);
+  z-index: -1;
+}
+
+/* ===== Custom Scrollbar ===== */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--border-default);
+  border-radius: 3px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* ===== Smooth Scrolling ===== */
+html {
+  scroll-behavior: smooth;
+}
+
+/* ===== Hero Background Patterns ===== */
+.hero-gradient-dark {
+  background: linear-gradient(135deg, #0B0B1A 0%, #1A1A3E 50%, #0B0B1A 100%);
+}
+
+.hero-gradient-light {
+  background: linear-gradient(135deg, #FFFFFF 0%, #F0EDFF 50%, #E8F4FD 100%);
+}
+
+/* ===== Animated Glow Pulse ===== */
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 20px rgba(108, 92, 231, 0.3); }
+  50% { box-shadow: 0 0 40px rgba(108, 92, 231, 0.5); }
+}
+
+.animate-glow-pulse {
+  animation: glow-pulse 3s ease-in-out infinite;
+}
+
+/* ===== Dot Grid Pattern ===== */
+.dot-pattern {
+  background-image: radial-gradient(circle, var(--border-default) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
