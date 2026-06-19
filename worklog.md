@@ -46,3 +46,24 @@ Stage Summary:
 - MVP covers 4 languages (ar, en, es, fr) = 12 possible language pairs
 - Key market expansion: Arabs learning English/French, Latin Americans learning English, Francophone Africans learning English
 - Onboarding now has 4 steps: Native Language → Target Language → Level → Goals
+
+---
+Task ID: 3
+Agent: Main Agent (Super Z)
+Task: Decide on AI provider strategy for zero budget — Gemini vs custom LLM
+
+Work Log:
+- Explained why training a custom LLM is not feasible for zero budget ($100K-$1M+)
+- Evaluated free AI API options: Gemini (best free tier), Groq, HuggingFace
+- Chose Google Gemini 1.5 Flash as primary AI provider (FREE tier: 15 RPM, 1,500 RPD, 1M tokens/min)
+- Updated `architecture.md`: Switched from OpenAI to Gemini, added provider-agnostic adapter pattern
+- Updated `deployment-and-env.md`: Changed OPENAI_API_KEY → GEMINI_API_KEY, added zero-budget note
+- Updated `code-standards.md`: Added adapter pattern rule, Gemini rate limit handling
+- Updated `progress-tracker.md`: Added architecture decision for Gemini switch
+
+Stage Summary:
+- AI is now FREE for MVP via Google Gemini API (no credit card needed)
+- Architecture uses adapter pattern — can switch to OpenAI/local LLM later without changing business logic
+- z-ai-web-dev-sdk LLM serves as fallback
+- Zero budget is feasible for the entire tech stack (Vercel free + Supabase free + Gemini free)
+
