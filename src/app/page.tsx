@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { motion, useInView, AnimatePresence } from "framer-motion";
+import { useTheme } from "next-themes";
 import {
   MessageSquare,
   SpellCheck,
@@ -23,6 +24,8 @@ import {
   Menu,
   XIcon,
   Sparkles,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -57,6 +60,66 @@ function FadeInSection({
     >
       {children}
     </motion.div>
+  );
+}
+
+/* ================================================================
+   THEME TOGGLE
+   ================================================================ */
+function ThemeToggle() {
+  const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+  const [transitioning, setTransitioning] = useState(false);
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { setMounted(true); }, []);
+
+  const toggleTheme = () => {
+    setTransitioning(true);
+    document.documentElement.classList.add("theme-transitioning");
+    setTheme(theme === "dark" ? "light" : "dark");
+    setTimeout(() => {
+      document.documentElement.classList.remove("theme-transitioning");
+      setTransitioning(false);
+    }, 400);
+  };
+
+  if (!mounted) {
+    return <div className="w-9 h-9" />;
+  }
+
+  return (
+    <button
+      onClick={toggleTheme}
+      className={`relative w-9 h-9 rounded-lg flex items-center justify-center border border-[var(--border-default)] bg-[var(--bg-surface)] hover:bg-[var(--bg-elevated)] transition-colors ${
+        transitioning ? "theme-transitioning" : ""
+      }`}
+      aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+    >
+      <AnimatePresence mode="wait">
+        {theme === "dark" ? (
+          <motion.div
+            key="sun"
+            initial={{ rotate: -90, opacity: 0, scale: 0.5 }}
+            animate={{ rotate: 0, opacity: 1, scale: 1 }}
+            exit={{ rotate: 90, opacity: 0, scale: 0.5 }}
+            transition={{ duration: 0.3, ease: "easeOut" }}
+          >
+            <Sun className="w-4 h-4 text-[var(--color-gold)]" />
+          </motion.div>
+        ) : (
+          <motion.div
+            key="moon"
+            initial={{ rotate: 90, opacity: 0, scale: 0.5 }}
+            animate={{ rotate: 0, opacity: 1, scale: 1 }}
+            exit={{ rotate: -90, opacity: 0, scale: 0.5 }}
+            transition={{ duration: 0.3, ease: "easeOut" }}
+          >
+            <Moon className="w-4 h-4 text-[var(--accent-primary)]" />
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </button>
   );
 }
 
@@ -122,6 +185,7 @@ function Navbar() {
 
           {/* Desktop Auth Buttons */}
           <div className="hidden md:flex items-center gap-3">
+            <ThemeToggle />
             <Button
               variant="ghost"
               size="sm"
@@ -138,17 +202,20 @@ function Navbar() {
           </div>
 
           {/* Mobile Menu Button */}
-          <button
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="md:hidden p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-            aria-label="Toggle menu"
-          >
-            {mobileMenuOpen ? (
-              <XIcon className="w-5 h-5" />
-            ) : (
-              <Menu className="w-5 h-5" />
-            )}
-          </button>
+          <div className="md:hidden flex items-center gap-2">
+            <ThemeToggle />
+            <button
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+              aria-label="Toggle menu"
+            >
+              {mobileMenuOpen ? (
+                <XIcon className="w-5 h-5" />
+              ) : (
+                <Menu className="w-5 h-5" />
+              )}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -203,14 +270,15 @@ function HeroSection() {
   return (
     <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
       {/* Background */}
-      <div className="absolute inset-0 hero-gradient-light dark:hero-gradient-dark" />
+      <div className="absolute inset-0 hero-gradient-light" />
 
       {/* Dot pattern overlay */}
-      <div className="absolute inset-0 dot-pattern opacity-30 dark:opacity-20" />
+      <div className="absolute inset-0 dot-pattern opacity-20 dark:opacity-10" />
 
-      {/* Gradient orb accents */}
-      <div className="absolute top-1/4 -left-32 w-96 h-96 rounded-full bg-[var(--accent-primary)] opacity-10 blur-[120px]" />
-      <div className="absolute bottom-1/4 -right-32 w-96 h-96 rounded-full bg-[var(--accent-secondary)] opacity-10 blur-[120px]" />
+      {/* Gradient orb accents — more visible */}
+      <div className="absolute top-1/4 -left-32 w-[500px] h-[500px] rounded-full bg-[var(--accent-primary)] opacity-[0.12] dark:opacity-[0.15] blur-[100px] animate-pulse" style={{ animationDuration: '8s' }} />
+      <div className="absolute bottom-1/4 -right-32 w-[400px] h-[400px] rounded-full bg-[var(--accent-secondary)] opacity-[0.1] dark:opacity-[0.12] blur-[100px] animate-pulse" style={{ animationDuration: '10s' }} />
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-[var(--accent-primary)] opacity-[0.04] dark:opacity-[0.06] blur-[120px]" />
 
       <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-24 pb-16 sm:pt-32 sm:pb-24 text-center">
         {/* Badge */}
@@ -219,8 +287,8 @@ function HeroSection() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.2 }}
         >
-          <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-[var(--border-default)] bg-[var(--bg-surface)]/60 backdrop-blur-sm text-xs font-medium text-[var(--text-secondary)] mb-8">
-            <Sparkles className="w-3.5 h-3.5 text-[var(--accent-primary)]" />
+          <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-[var(--accent-primary)]/30 bg-[var(--accent-light)]/50 backdrop-blur-sm text-xs font-medium text-[var(--accent-primary)] dark:text-[var(--accent-hover)] mb-8">
+            <Sparkles className="w-3.5 h-3.5" />
             Now in Public Beta
           </span>
         </motion.div>
@@ -268,7 +336,7 @@ function HeroSection() {
           <Button
             variant="outline"
             size="lg"
-            className="rounded-xl px-8 h-12 text-base font-medium border-[var(--border-default)] hover:bg-[var(--bg-elevated)] transition-all"
+            className="rounded-xl px-8 h-12 text-base font-medium border-[var(--accent-primary)]/30 text-[var(--accent-primary)] hover:bg-[var(--accent-light)] hover:border-[var(--accent-primary)]/50 transition-all dark:text-[var(--accent-hover)] dark:border-[var(--accent-primary)]/30 dark:hover:bg-[var(--accent-light)]"
           >
             <Play className="w-4 h-4 mr-1" />
             Watch Demo

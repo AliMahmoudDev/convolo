@@ -205,11 +205,25 @@ html {
 
 /* ===== Hero Background Patterns ===== */
 .hero-gradient-dark {
-  background: linear-gradient(135deg, #0B0B1A 0%, #1A1A3E 50%, #0B0B1A 100%);
+  background: 
+    radial-gradient(ellipse 80% 60% at 20% 40%, rgba(108, 92, 231, 0.15) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 80% 60%, rgba(0, 210, 255, 0.1) 0%, transparent 60%),
+    linear-gradient(160deg, #0B0B1A 0%, #111133 40%, #1A1A3E 70%, #0D0D20 100%);
 }
 
 .hero-gradient-light {
-  background: linear-gradient(135deg, #FFFFFF 0%, #F0EDFF 50%, #E8F4FD 100%);
+  background: 
+    radial-gradient(ellipse 80% 60% at 20% 40%, rgba(108, 92, 231, 0.08) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 80% 60%, rgba(0, 210, 255, 0.06) 0%, transparent 60%),
+    linear-gradient(160deg, #FFFFFF 0%, #F5F3FF 30%, #EEF2FF 60%, #F0F9FF 100%);
+}
+
+/* Override hero gradient in dark mode */
+.dark .hero-gradient-light {
+  background: 
+    radial-gradient(ellipse 80% 60% at 20% 40%, rgba(108, 92, 231, 0.15) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 80% 60%, rgba(0, 210, 255, 0.1) 0%, transparent 60%),
+    linear-gradient(160deg, #0B0B1A 0%, #111133 40%, #1A1A3E 70%, #0D0D20 100%);
 }
 
 /* ===== Animated Glow Pulse ===== */
@@ -226,4 +240,26 @@ html {
 .dot-pattern {
   background-image: radial-gradient(circle, var(--border-default) 1px, transparent 1px);
   background-size: 24px 24px;
+}
+
+/* ===== Theme Toggle Animation ===== */
+@keyframes theme-transition {
+  0% { opacity: 0.6; transform: scale(0.98); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+.theme-transitioning {
+  animation: theme-transition 0.3s ease-out;
+}
+
+/* Smooth color transitions for theme changes */
+html {
+  transition: color-scheme 0.3s ease;
+}
+
+html.theme-transitioning,
+html.theme-transitioning *,
+html.theme-transitioning *::before,
+html.theme-transitioning *::after {
+  transition: background-color 0.4s ease, color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease, opacity 0.3s ease !important;
 }
