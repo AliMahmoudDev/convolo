@@ -1,9 +1,9 @@
-import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
+import { getToken } from "next-auth/jwt";
+import type { NextRequest } from "next/server";
 
-export default auth((req) => {
+export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
-  const isLoggedIn = !!req.auth;
 
   // Public routes that don't require authentication
   const publicRoutes = [
@@ -27,6 +27,10 @@ export default auth((req) => {
   if (pathname.startsWith("/api/auth")) {
     return NextResponse.next();
   }
+
+  // Check for JWT token — lightweight, no Prisma/bcrypt imports
+  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+  const isLoggedIn = !!token;
 
   // Redirect logged-in users away from auth pages
   if (authRoutes.some((route) => pathname.startsWith(route)) && isLoggedIn) {
@@ -67,11 +71,10 @@ export default auth((req) => {
       loginUrl.searchParams.set("callbackUrl", pathname);
       return NextResponse.redirect(loginUrl);
     }
-    // TODO: Check admin role when admin system is implemented
   }
 
   return NextResponse.next();
-});
+}
 
 export const config = {
   matcher: [
