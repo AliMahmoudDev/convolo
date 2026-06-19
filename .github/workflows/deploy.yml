@@ -1,12 +1,13 @@
 # Convolo — Deploy to Vercel (Production)
-# Only runs when VERCEL_TOKEN secret is configured
-# To set up: GitHub → Repo Settings → Secrets → Actions → Add VERCEL_TOKEN
+# Requires VERCEL_TOKEN secret to be configured
+# Setup: GitHub → Repo Settings → Secrets → Actions → Add VERCEL_TOKEN
 
 name: Deploy Production
 
 on:
   push:
     branches: [main]
+  workflow_dispatch: # Allow manual trigger from GitHub UI
 
 concurrency:
   group: deploy-production
@@ -17,19 +18,36 @@ jobs:
     name: Deploy to Vercel
     runs-on: ubuntu-latest
     environment: production
-    # Skip if Vercel token is not configured yet
-    if: ${{ secrets.VERCEL_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check Vercel Token
+        id: check-token
+        run: |
+          if [ -z "${{ secrets.VERCEL_TOKEN }}" ]; then
+            echo "⚠️ VERCEL_TOKEN not configured. Skipping deploy."
+            echo "To set up: GitHub → Repo Settings → Secrets → Actions → Add VERCEL_TOKEN"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Install Vercel CLI
+        if: steps.check-token.outputs.skip == 'false'
         run: npm i -g vercel@latest
 
       - name: Pull Vercel Environment
+        if: steps.check-token.outputs.skip == 'false'
         run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
 
       - name: Build with Vercel
+        if: steps.check-token.outputs.skip == 'false'
         run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
 
       - name: Deploy to Vercel
+        if: steps.check-token.outputs.skip == 'false'
         run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Skip Notice
+        if: steps.check-token.outputs.skip == 'true'
+        run: echo "⏭️ Deploy skipped — VERCEL_TOKEN not configured yet. This is expected until Vercel is linked."
