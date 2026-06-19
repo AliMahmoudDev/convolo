@@ -523,35 +523,85 @@ function HowItWorksSection() {
           </p>
         </FadeInSection>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-8 md:gap-4 relative">
-          {/* Connecting Line (desktop only) */}
-          <div className="hidden md:block absolute top-16 left-[12.5%] right-[12.5%] h-[2px] bg-gradient-to-r from-[var(--accent-primary)] via-[var(--accent-secondary)] to-[var(--color-gold)]" />
+        {/* Desktop/Tablet: Horizontal layout with connecting line */}
+        <div className="hidden md:block relative">
+          {/* Horizontal connecting line behind the icons */}
+          <div
+            className="absolute top-8 left-[calc(12.5%+32px)] right-[calc(12.5%+32px)] h-[2px]"
+            style={{
+              background: "linear-gradient(90deg, var(--accent-primary), var(--accent-secondary), var(--color-gold))",
+            }}
+          />
 
-          {steps.map((step, i) => (
-            <FadeInSection key={step.step} delay={i * 0.15}>
-              <div className="relative flex flex-col items-center text-center">
-                {/* Step Circle */}
-                <div className="relative z-10 w-16 h-16 rounded-2xl gradient-conbolo flex items-center justify-center mb-5 shadow-[var(--shadow-glow)]">
-                  <step.icon className="w-7 h-7 text-white" />
+          <div className="grid grid-cols-4 gap-4">
+            {steps.map((step, i) => (
+              <FadeInSection key={step.step} delay={i * 0.15}>
+                <div className="relative flex flex-col items-center text-center">
+                  {/* Step Circle — white bg to "cut" the line */}
+                  <div className="relative z-10 w-16 h-16 rounded-2xl gradient-conbolo flex items-center justify-center mb-5 shadow-[var(--shadow-glow)]">
+                    <step.icon className="w-7 h-7 text-white" />
+                  </div>
+
+                  {/* Step Number Badge */}
+                  <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-[var(--bg-elevated)] border border-[var(--border-default)] text-xs font-semibold text-[var(--text-muted)] mb-3">
+                    {step.step}
+                  </span>
+
+                  <h3
+                    className="text-lg font-semibold text-[var(--text-primary)] mb-2"
+                    style={{ fontFamily: "var(--font-heading-cfg)" }}
+                  >
+                    {step.title}
+                  </h3>
+                  <p className="text-sm text-[var(--text-secondary)] max-w-[200px]">
+                    {step.description}
+                  </p>
                 </div>
+              </FadeInSection>
+            ))}
+          </div>
+        </div>
 
-                {/* Step Number Badge */}
-                <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-[var(--bg-elevated)] border border-[var(--border-default)] text-xs font-semibold text-[var(--text-muted)] mb-3">
-                  {step.step}
-                </span>
+        {/* Mobile: Vertical layout with connecting line */}
+        <div className="md:hidden relative">
+          {/* Vertical connecting line on the left */}
+          <div
+            className="absolute top-8 bottom-8 w-[2px]"
+            style={{
+              left: "31px",
+              background: "linear-gradient(180deg, var(--accent-primary), var(--accent-secondary), var(--color-gold))",
+            }}
+          />
 
-                <h3
-                  className="text-lg font-semibold text-[var(--text-primary)] mb-2"
-                  style={{ fontFamily: "var(--font-heading-cfg)" }}
-                >
-                  {step.title}
-                </h3>
-                <p className="text-sm text-[var(--text-secondary)] max-w-[200px]">
-                  {step.description}
-                </p>
-              </div>
-            </FadeInSection>
-          ))}
+          <div className="flex flex-col gap-8">
+            {steps.map((step, i) => (
+              <FadeInSection key={step.step} delay={i * 0.1}>
+                <div className="relative flex items-start gap-5">
+                  {/* Step Circle — bg-base bg to "cut" the line */}
+                  <div className="relative z-10 flex-shrink-0 w-16 h-16 rounded-2xl gradient-conbolo flex items-center justify-center shadow-[var(--shadow-glow)]">
+                    <step.icon className="w-7 h-7 text-white" />
+                  </div>
+
+                  <div className="pt-2 flex-1">
+                    {/* Step Number Badge */}
+                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-[var(--bg-elevated)] border border-[var(--border-default)] text-xs font-semibold text-[var(--text-muted)] mb-2">
+                      {step.step}
+                    </span>
+
+                    <h3
+                      className="text-lg font-semibold text-[var(--text-primary)] mb-1"
+                      style={{ fontFamily: "var(--font-heading-cfg)" }}
+                    >
+                      {step.title}
+                    </h3>
+                    <p className="text-sm text-[var(--text-secondary)]">
+                      {step.description}
+                    </p>
+                  </div>
+                </div>
+              </FadeInSection>
+            ))}
+          </div>
         </div>
       </div>
     </section>
