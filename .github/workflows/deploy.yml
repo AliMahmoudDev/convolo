@@ -7,7 +7,7 @@ name: Deploy Production
 on:
   push:
     branches: [main]
-  workflow_dispatch: # Allow manual trigger from GitHub UI
+  workflow_dispatch:
 
 concurrency:
   group: deploy-production
@@ -21,12 +21,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
       - name: Check Vercel Token
         id: check-token
         run: |
           if [ -z "${{ secrets.VERCEL_TOKEN }}" ]; then
             echo "⚠️ VERCEL_TOKEN not configured. Skipping deploy."
-            echo "To set up: GitHub → Repo Settings → Secrets → Actions → Add VERCEL_TOKEN"
             echo "skip=true" >> $GITHUB_OUTPUT
           else
             echo "skip=false" >> $GITHUB_OUTPUT
@@ -50,4 +53,4 @@ jobs:
 
       - name: Skip Notice
         if: steps.check-token.outputs.skip == 'true'
-        run: echo "⏭️ Deploy skipped — VERCEL_TOKEN not configured yet. This is expected until Vercel is linked."
+        run: echo "⏭️ Deploy skipped — VERCEL_TOKEN not configured yet."
