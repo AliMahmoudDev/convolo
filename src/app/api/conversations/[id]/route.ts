@@ -18,6 +18,7 @@
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { getAuthUser, errorResponse, successResponse } from "@/lib/api-helpers";
+import { getOrCreateUser } from "@/lib/user-provisioning";
 import { getScoreRating } from "@/lib/constants";
 
 // ═══════════════════════════════════════════
@@ -33,13 +34,8 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     return errorResponse("UNAUTHORIZED", "Please log in", 401);
   }
 
-  // 2. Get user's DB record
-  const dbUser = await db.user.findUnique({
-    where: { supabaseUid: user.id },
-  });
-  if (!dbUser) {
-    return errorResponse("NOT_FOUND", "User profile not found", 404);
-  }
+  // 2. Get or create user's DB record (auto-provisioning)
+  const dbUser = await getOrCreateUser(user);
 
   // 3. Fetch conversation with all messages
   const conversation = await db.conversation.findUnique({
@@ -142,13 +138,8 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
     return errorResponse("UNAUTHORIZED", "Please log in", 401);
   }
 
-  // 2. Get user's DB record
-  const dbUser = await db.user.findUnique({
-    where: { supabaseUid: user.id },
-  });
-  if (!dbUser) {
-    return errorResponse("NOT_FOUND", "User profile not found", 404);
-  }
+  // 2. Get or create user's DB record (auto-provisioning)
+  const dbUser = await getOrCreateUser(user);
 
   // 3. Verify conversation
   const conversation = await db.conversation.findUnique({

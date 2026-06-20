@@ -197,7 +197,14 @@ export default function ProfilePage() {
       setIsLoading(true);
       setError(null);
       const res = await fetch("/api/user/profile");
-      const data = await res.json();
+
+      // Safely parse JSON — the server might return HTML on crash
+      let data;
+      try {
+        data = await res.json();
+      } catch {
+        throw new Error("Server returned an invalid response. Please refresh the page.");
+      }
 
       if (!res.ok || !data.success) {
         throw new Error(data.error?.message || "Failed to load profile");

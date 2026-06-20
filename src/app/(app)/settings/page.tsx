@@ -53,7 +53,14 @@ export default function SettingsPage() {
     try {
       setIsLoading(true);
       const res = await fetch("/api/user/profile");
-      const data = await res.json();
+      // Safely parse JSON — the server might return HTML on crash
+      let data;
+      try {
+        data = await res.json();
+      } catch {
+        // Server returned non-JSON (crash) — use defaults
+        return;
+      }
       if (res.ok && data.success) {
         setProfile(data.data);
       }

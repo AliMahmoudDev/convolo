@@ -19,6 +19,7 @@ import { db } from "@/lib/db";
 import { getAuthUser, errorResponse, successResponse, parseRequestBody } from "@/lib/api-helpers";
 import { messageSendSchema } from "@/lib/validations";
 import { getAIProvider, buildSystemPrompt } from "@/lib/ai";
+import { getOrCreateUser } from "@/lib/user-provisioning";
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id: conversationId } = await params;
@@ -29,13 +30,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return errorResponse("UNAUTHORIZED", "Please log in", 401);
   }
 
-  // 2. Get user's DB record
-  const dbUser = await db.user.findUnique({
-    where: { supabaseUid: user.id },
-  });
-  if (!dbUser) {
-    return errorResponse("NOT_FOUND", "User profile not found", 404);
-  }
+  // 2. Get or create user's DB record (auto-provisioning)
+  const dbUser = await getOrCreateUser(user);
 
   // 3. Verify conversation exists and belongs to user
   const conversation = await db.conversation.findUnique({

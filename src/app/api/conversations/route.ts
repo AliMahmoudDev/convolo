@@ -18,6 +18,7 @@ import { getAuthUser, errorResponse, successResponse, parseRequestBody } from "@
 import { conversationStartSchema } from "@/lib/validations";
 import { hasExceededDailyLimit } from "@/lib/constants";
 import { getAIProvider, buildSystemPrompt } from "@/lib/ai";
+import { getOrCreateUser } from "@/lib/user-provisioning";
 import type { AIChatContext } from "@/types/conversation";
 
 export async function POST(request: NextRequest) {
@@ -41,15 +42,8 @@ export async function POST(request: NextRequest) {
 
   const { languagePair, scenarioId, difficultyLevel } = parseResult.data;
 
-  // 3. Get user's DB record and subscription status
-  const dbUser = await db.user.findUnique({
-    where: { supabaseUid: user.id },
-    include: { subscription: true },
-  });
-
-  if (!dbUser) {
-    return errorResponse("NOT_FOUND", "User profile not found", 404);
-  }
+  // 3. Get or create user's DB record (auto-provisioning)
+  const dbUser = await getOrCreateUser(user);
 
   const isPro = dbUser.subscription?.plan !== "free" && dbUser.subscription?.status === "active";
 
