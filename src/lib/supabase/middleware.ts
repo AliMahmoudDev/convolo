@@ -87,6 +87,7 @@ export async function updateSession(request: NextRequest) {
     "/review",
     "/vocabulary",
     "/progress",
+    "/profile",
     "/settings",
   ];
   if (protectedPrefixes.some((prefix) => pathname.startsWith(prefix))) {

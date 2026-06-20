@@ -12,11 +12,12 @@ import {
   Flame,
   ChevronLeft,
   ChevronRight,
+  User,
 } from "lucide-react";
 import { ConvoloLogoFull, ConvoloLogo } from "@/components/logo";
-import { createClient } from "@/lib/supabase/client";
+import { useAuth } from "@/components/auth/auth-provider";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -29,11 +30,15 @@ const navItems = [
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
+  const { user, signOut } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
 
+  // Get display name from Supabase user metadata
+  const displayName = user?.user_metadata?.name || user?.email?.split("@")[0] || "User";
+  const displayInitial = (user?.user_metadata?.name || user?.email || "?")[0]?.toUpperCase() || "?";
+
   const handleSignOut = async () => {
-    const supabase = createClient();
-    await supabase.auth.signOut();
+    await signOut();
     router.push("/login");
     router.refresh();
   };
@@ -110,8 +115,29 @@ export function Sidebar() {
         )}
       </button>
 
-      {/* Sign out */}
-      <div className="px-3 pb-4">
+      {/* User profile + Sign out */}
+      <div className="border-t border-[var(--border-default)] px-3 pt-3 pb-4">
+        {/* Profile link */}
+        <Link
+          href="/profile"
+          className={`mb-2 flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-[var(--bg-elevated)] ${
+            collapsed ? "justify-center" : ""
+          }`}
+        >
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--accent-primary)] text-xs font-semibold text-white">
+            {displayInitial}
+          </div>
+          {!collapsed && (
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium text-[var(--text-primary)]">
+                {displayName}
+              </p>
+              <p className="truncate text-[10px] text-[var(--text-muted)]">{user?.email}</p>
+            </div>
+          )}
+        </Link>
+
+        {/* Sign out */}
         <button
           onClick={handleSignOut}
           className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--state-error-light)] hover:text-[var(--state-error)] ${
