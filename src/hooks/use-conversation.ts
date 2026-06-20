@@ -115,7 +115,14 @@ export function useConversation(conversationId: string): UseConversationReturn {
         setError(null);
 
         const res = await fetch(`/api/conversations/${conversationId}`);
-        const data = await res.json();
+
+        // Safely parse JSON — the server might return HTML on crash
+        let data;
+        try {
+          data = await res.json();
+        } catch {
+          throw new Error("Server returned an invalid response. Please refresh the page.");
+        }
 
         if (!res.ok || !data.success) {
           throw new Error(data.error?.message || "Failed to load conversation");
@@ -188,7 +195,13 @@ export function useConversation(conversationId: string): UseConversationReturn {
           body: JSON.stringify({ content }),
         });
 
-        const data = await res.json();
+        // Safely parse JSON — the server might return HTML on crash
+        let data;
+        try {
+          data = await res.json();
+        } catch {
+          throw new Error("Server error. Please try again.");
+        }
 
         if (!res.ok || !data.success) {
           throw new Error(data.error?.message || "Failed to send message");
@@ -241,7 +254,13 @@ export function useConversation(conversationId: string): UseConversationReturn {
         method: "POST",
       });
 
-      const data = await res.json();
+      // Safely parse JSON
+      let data;
+      try {
+        data = await res.json();
+      } catch {
+        throw new Error("Server error. Please try again.");
+      }
 
       if (!res.ok || !data.success) {
         throw new Error(data.error?.message || "Failed to end conversation");
