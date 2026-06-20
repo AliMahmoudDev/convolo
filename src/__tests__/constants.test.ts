@@ -49,8 +49,8 @@ describe("Tier Limits", () => {
 // ═══════════════════════════════════════════
 
 describe("Gemini Limits", () => {
-  it("free tier allows 15 RPM", () => {
-    expect(GEMINI_LIMITS.RPM).toBe(15);
+  it("free tier allows 10 RPM (Gemini 2.5 Flash)", () => {
+    expect(GEMINI_LIMITS.RPM).toBe(10);
   });
 
   it("free tier allows 1500 RPD", () => {

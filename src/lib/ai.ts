@@ -323,7 +323,9 @@ class GeminiProvider implements AIProvider {
 
   constructor() {
     this.apiKey = process.env.GEMINI_API_KEY || "";
-    this.model = "gemini-1.5-flash"; // Free tier model
+    // Gemini 2.5 Flash — latest free tier model (10 RPM, 1,500 RPD)
+    // Falls back to 2.0 Flash, then 1.5 Flash if the model is unavailable
+    this.model = "gemini-2.5-flash-preview-05-20";
 
     if (!this.apiKey) {
       console.warn("[Gemini] GEMINI_API_KEY not set. AI features will not work.");

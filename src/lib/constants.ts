@@ -32,9 +32,9 @@ export const PRO_TIER = {
 // ═══════════════════════════════════════════
 
 export const GEMINI_LIMITS = {
-  /** Requests per minute (free tier) */
-  RPM: 15,
-  /** Requests per day (free tier) */
+  /** Requests per minute (free tier — Gemini 2.5 Flash: 10 RPM, 1.5 Flash: 15 RPM) */
+  RPM: 10,
+  /** Requests per day (free tier — 1,500 RPD shared across 2.5 Flash models) */
   RPD: 1500,
   /** Maximum tokens per minute */
   TPM: 1_000_000,
