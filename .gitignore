@@ -2,3 +2,22 @@ skills/
 node_modules/
 .next/
 tool-results/
+
+# Environment files (NEVER commit secrets)
+.env
+.env.local
+.env*.local
+.env.production
+.env.development
+
+# Project context (internal)
+project-context/
+worklog.md
+download/
+upload/
+db/
+scripts/setup-env.py
+
+# Generated files
+howitworks-*.png
+*.tsbuildinfo
