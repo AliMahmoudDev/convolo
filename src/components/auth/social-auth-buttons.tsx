@@ -15,7 +15,8 @@ export function SocialAuthButtons() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${baseUrl}/dashboard`,
+        // Must point to our /auth/callback route so the code exchange works
+        redirectTo: `${baseUrl}/auth/callback?next=/dashboard`,
       },
     });
 
