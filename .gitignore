@@ -21,3 +21,4 @@ scripts/setup-env.py
 # Generated files
 howitworks-*.png
 *.tsbuildinfo
+.vercel
