@@ -1,5 +1,10 @@
 /**
- * POST /api/conversations/[id]/end — End a conversation and get summary
+ * GET /api/conversations/[id] — Fetch a conversation with all its messages
+ *
+ * Used when the user opens or refreshes the conversation page.
+ * Returns: conversation metadata + all messages with corrections/vocabulary.
+ *
+ * POST /api/conversations/[id] — End a conversation and get summary
  *
  * Flow:
  * 1. Verify user is authenticated
@@ -14,6 +19,119 @@ import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { getAuthUser, errorResponse, successResponse } from "@/lib/api-helpers";
 import { getScoreRating } from "@/lib/constants";
+
+// ═══════════════════════════════════════════
+// GET — Fetch conversation with messages
+// ═══════════════════════════════════════════
+
+export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id: conversationId } = await params;
+
+  // 1. Authenticate
+  const user = await getAuthUser();
+  if (!user) {
+    return errorResponse("UNAUTHORIZED", "Please log in", 401);
+  }
+
+  // 2. Get user's DB record
+  const dbUser = await db.user.findUnique({
+    where: { supabaseUid: user.id },
+  });
+  if (!dbUser) {
+    return errorResponse("NOT_FOUND", "User profile not found", 404);
+  }
+
+  // 3. Fetch conversation with all messages
+  const conversation = await db.conversation.findUnique({
+    where: { id: conversationId },
+    include: {
+      messages: {
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          role: true,
+          content: true,
+          contentTranslated: true,
+          corrections: true,
+          vocabularyItems: true,
+          grammarNotes: true,
+          createdAt: true,
+        },
+      },
+      scenario: {
+        select: { title: true, description: true },
+      },
+    },
+  });
+
+  if (!conversation) {
+    return errorResponse("NOT_FOUND", "Conversation not found", 404);
+  }
+
+  if (conversation.userId !== dbUser.id) {
+    return errorResponse("FORBIDDEN", "You don't have access to this conversation", 403);
+  }
+
+  // 4. Calculate duration for active conversations
+  const durationMs = conversation.endedAt
+    ? conversation.endedAt.getTime() - conversation.startedAt.getTime()
+    : Date.now() - conversation.startedAt.getTime();
+  const durationMinutes = Math.round(durationMs / 60000);
+
+  // 5. Count total corrections and vocabulary for the sidebar
+  let totalCorrections = 0;
+  let totalVocabulary = 0;
+  const uniqueWords: string[] = [];
+
+  for (const msg of conversation.messages) {
+    if (msg.role === "assistant") {
+      const corrections = msg.corrections as unknown[];
+      const vocabulary = msg.vocabularyItems as unknown[];
+      if (Array.isArray(corrections)) totalCorrections += corrections.length;
+      if (Array.isArray(vocabulary)) {
+        for (const v of vocabulary) {
+          if (typeof v === "object" && v !== null && "word" in v) {
+            const word = (v as { word: string }).word;
+            if (word && !uniqueWords.includes(word)) {
+              uniqueWords.push(word);
+              totalVocabulary++;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // 6. Return conversation data
+  return successResponse({
+    id: conversation.id,
+    languagePair: conversation.languagePair,
+    difficultyLevel: conversation.difficultyLevel,
+    status: conversation.status,
+    startedAt: conversation.startedAt.toISOString(),
+    endedAt: conversation.endedAt?.toISOString() ?? null,
+    durationMinutes: Math.max(1, durationMinutes),
+    messageCount: conversation.messageCount,
+    overallScore: conversation.overallScore,
+    scenario: conversation.scenario,
+    totalCorrections,
+    totalVocabulary,
+    messages: conversation.messages.map((msg) => ({
+      id: msg.id,
+      role: msg.role,
+      content: msg.content,
+      translatedContent: msg.contentTranslated,
+      corrections: msg.corrections,
+      vocabularyItems: msg.vocabularyItems,
+      grammarNotes: msg.grammarNotes,
+      createdAt: msg.createdAt.toISOString(),
+    })),
+  });
+}
+
+// ═══════════════════════════════════════════
+// POST — End conversation and get summary
+// ═══════════════════════════════════════════
 
 export async function POST(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id: conversationId } = await params;
