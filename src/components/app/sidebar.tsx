@@ -50,14 +50,16 @@ export function Sidebar() {
         collapsed ? "w-[72px]" : "w-64"
       }`}
     >
-      {/* Logo */}
+      {/* Logo — links to landing page (/). Dashboard link is in the nav below. */}
       <div className="flex h-16 items-center border-b border-[var(--border-default)] px-4">
         {collapsed ? (
-          <Link href="/dashboard" className="mx-auto">
+          <Link href="/" className="mx-auto">
             <ConvoloLogo size="sm" />
           </Link>
         ) : (
-          <ConvoloLogoFull size="sm" />
+          <Link href="/">
+            <ConvoloLogoFull size="sm" />
+          </Link>
         )}
       </div>
 

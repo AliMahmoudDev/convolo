@@ -26,7 +26,10 @@ export function MobileHeader() {
 
   return (
     <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-[var(--border-default)] bg-[var(--bg-surface)] px-4 md:hidden">
-      <ConvoloLogoFull size="sm" />
+      {/* Logo — links to landing page */}
+      <Link href="/">
+        <ConvoloLogoFull size="sm" />
+      </Link>
 
       <div className="flex items-center gap-2">
         {/* User avatar (quick link to profile) */}
