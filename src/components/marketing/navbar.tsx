@@ -58,19 +58,23 @@ export function Navbar() {
           {/* Desktop Auth Buttons */}
           <div className="hidden items-center gap-3 md:flex">
             <ThemeToggle />
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-            >
-              Log In
-            </Button>
-            <Button
-              size="sm"
-              className="gradient-conbolo rounded-lg border-0 px-5 text-white transition-opacity hover:opacity-90"
-            >
-              Sign Up Free
-            </Button>
+            <Link href="/login">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+              >
+                Log In
+              </Button>
+            </Link>
+            <Link href="/signup">
+              <Button
+                size="sm"
+                className="gradient-conbolo rounded-lg border-0 px-5 text-white transition-opacity hover:opacity-90"
+              >
+                Sign Up Free
+              </Button>
+            </Link>
           </div>
 
           {/* Mobile Menu Button */}
@@ -109,19 +113,23 @@ export function Navbar() {
                 </Link>
               ))}
               <div className="flex flex-col gap-2 border-t border-[var(--border-default)] pt-3">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="w-full justify-center text-[var(--text-secondary)]"
-                >
-                  Log In
-                </Button>
-                <Button
-                  size="sm"
-                  className="gradient-conbolo w-full rounded-lg border-0 text-white transition-opacity hover:opacity-90"
-                >
-                  Sign Up Free
-                </Button>
+                <Link href="/login" onClick={() => setMobileMenuOpen(false)}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full justify-center text-[var(--text-secondary)]"
+                  >
+                    Log In
+                  </Button>
+                </Link>
+                <Link href="/signup" onClick={() => setMobileMenuOpen(false)}>
+                  <Button
+                    size="sm"
+                    className="gradient-conbolo w-full rounded-lg border-0 text-white transition-opacity hover:opacity-90"
+                  >
+                    Sign Up Free
+                  </Button>
+                </Link>
               </div>
             </div>
           </motion.div>
