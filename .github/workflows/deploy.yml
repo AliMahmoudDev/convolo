@@ -1,6 +1,6 @@
 # Convolo — Deploy to Vercel (Production)
-# Requires VERCEL_TOKEN secret to be configured
-# Setup: GitHub → Repo Settings → Secrets → Actions → Add VERCEL_TOKEN
+# Requires VERCEL_TOKEN + NEXT_PUBLIC_SUPABASE_URL + NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+# Setup: GitHub → Repo Settings → Secrets → Actions
 
 name: Deploy Production
 
@@ -39,13 +39,9 @@ jobs:
         if: steps.check-token.outputs.skip == 'false'
         run: npm i -g vercel@latest
 
-      - name: Set Supabase Environment Variables
+      - name: Link Vercel Project
         if: steps.check-token.outputs.skip == 'false'
-        run: |
-          vercel env add NEXT_PUBLIC_SUPABASE_URL production --yes -t ${{ secrets.VERCEL_TOKEN }} <<< "${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}" || true
-          vercel env add NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY production --yes -t ${{ secrets.VERCEL_TOKEN }} <<< "${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}" || true
-          vercel env add NEXT_PUBLIC_SUPABASE_URL preview --yes -t ${{ secrets.VERCEL_TOKEN }} <<< "${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}" || true
-          vercel env add NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY preview --yes -t ${{ secrets.VERCEL_TOKEN }} <<< "${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}" || true
+        run: vercel link --yes --token=${{ secrets.VERCEL_TOKEN }}
 
       - name: Pull Vercel Environment
         if: steps.check-token.outputs.skip == 'false'
@@ -54,6 +50,11 @@ jobs:
       - name: Build with Vercel
         if: steps.check-token.outputs.skip == 'false'
         run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          # Inject NEXT_PUBLIC_ vars so they're embedded during build
+          # These are needed by Supabase client code at build time
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
 
       - name: Deploy to Vercel
         if: steps.check-token.outputs.skip == 'false'
