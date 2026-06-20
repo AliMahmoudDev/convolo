@@ -6,24 +6,36 @@
  * they'd lose their session and have to log in again. A confirmation
  * dialog prevents accidental sign-outs.
  *
- * HOW IT WORKS:
- * - Uses Radix UI's AlertDialog (accessible, focus-trapped, keyboard-friendly)
- * - Shows a warning message explaining what will happen
- * - "Cancel" (safe, default) and "Sign Out" (destructive, red) buttons
- * - On confirm: calls the onConfirm callback, then closes
- * - On cancel: just closes, nothing happens
+ * TWO MODES OF USE:
  *
- * DESIGN DECISION: The destructive button is red and on the right.
- * The safe button is on the left (or top on mobile). This follows
- * the convention that "dangerous" actions are visually distinct and
- * require more effort to reach.
+ * 1. CONTROLLED (external state) — for dropdowns/menus where the dialog
+ *    must live OUTSIDE the menu to avoid getting unmounted:
+ *    ```tsx
+ *    const [dialogOpen, setDialogOpen] = useState(false);
+ *    <button onClick={() => setDialogOpen(true)}>Sign Out</button>
+ *    <ConfirmSignOutDialog
+ *      open={dialogOpen}
+ *      onOpenChange={setDialogOpen}
+ *      onConfirm={handleSignOut}
+ *    />
+ *    ```
+ *
+ * 2. TRIGGER (self-contained) — for standalone buttons not inside menus:
+ *    ```tsx
+ *    <ConfirmSignOutDialog onConfirm={handleSignOut}>
+ *      <button>Sign Out</button>
+ *    </ConfirmSignOutDialog>
+ *    ```
+ *
+ * CRITICAL: If the dialog is inside a dropdown/menu, use MODE 1.
+ * If the dropdown closes, everything inside it unmounts — including
+ * the dialog. This is why the dialog must be OUTSIDE the dropdown.
  */
 
 "use client";
 
 import { useState } from "react";
 import { Loader2, LogOut } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -37,15 +49,28 @@ import {
 } from "@/components/ui/alert-dialog";
 
 interface ConfirmSignOutDialogProps {
-  /** The element that triggers the dialog (usually a button) */
-  children: React.ReactNode;
   /** Called when the user confirms sign out */
   onConfirm: () => Promise<void>;
+  /** Controlled open state (use this when parent manages visibility) */
+  open?: boolean;
+  /** Called when the dialog should open/close (controlled mode) */
+  onOpenChange?: (open: boolean) => void;
+  /** Trigger element (only used in uncontrolled mode) */
+  children?: React.ReactNode;
 }
 
-export function ConfirmSignOutDialog({ children, onConfirm }: ConfirmSignOutDialogProps) {
+export function ConfirmSignOutDialog({
+  onConfirm,
+  open: controlledOpen,
+  onOpenChange,
+  children,
+}: ConfirmSignOutDialogProps) {
+  const [internalOpen, setInternalOpen] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
-  const [open, setOpen] = useState(false);
+
+  // Use controlled state if provided, otherwise use internal state
+  const isOpen = controlledOpen !== undefined ? controlledOpen : internalOpen;
+  const setIsOpen = onOpenChange !== undefined ? onOpenChange : setInternalOpen;
 
   const handleConfirm = async () => {
     setIsSigningOut(true);
@@ -53,13 +78,14 @@ export function ConfirmSignOutDialog({ children, onConfirm }: ConfirmSignOutDial
       await onConfirm();
     } finally {
       setIsSigningOut(false);
-      setOpen(false);
+      setIsOpen(false);
     }
   };
 
   return (
-    <AlertDialog open={open} onOpenChange={setOpen}>
-      <AlertDialogTrigger asChild>{children}</AlertDialogTrigger>
+    <AlertDialog open={isOpen} onOpenChange={setIsOpen}>
+      {/* Only render trigger in uncontrolled mode */}
+      {children && <AlertDialogTrigger asChild>{children}</AlertDialogTrigger>}
       <AlertDialogContent className="border-[var(--border-default)] bg-[var(--bg-surface)]">
         <AlertDialogHeader>
           <AlertDialogTitle className="text-[var(--text-primary)]">Sign Out?</AlertDialogTitle>
