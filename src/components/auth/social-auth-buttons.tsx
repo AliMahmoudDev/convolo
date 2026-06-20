@@ -8,10 +8,14 @@ export function SocialAuthButtons() {
   const supabase = createClient();
 
   const handleGoogleSignIn = async () => {
+    // Use production URL explicitly to avoid localhost redirect issues in production
+    const baseUrl =
+      process.env.NODE_ENV === "production" ? "https://convolo.vercel.app" : window.location.origin;
+
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/dashboard`,
+        redirectTo: `${baseUrl}/dashboard`,
       },
     });
 
