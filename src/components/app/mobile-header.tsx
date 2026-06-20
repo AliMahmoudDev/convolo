@@ -4,16 +4,19 @@ import Link from "next/link";
 import { ConvoloLogoFull } from "@/components/logo";
 import { Menu, X, LogOut, User, LayoutDashboard } from "lucide-react";
 import { useState } from "react";
-import { useAuth } from "@/components/auth/auth-provider";
+import { useAuthStore, useUserDisplayName, useUserInitial } from "@/stores/auth-store";
+import { ConfirmSignOutDialog } from "@/components/auth/confirm-sign-out";
 import { useRouter } from "next/navigation";
 
 export function MobileHeader() {
   const [menuOpen, setMenuOpen] = useState(false);
   const router = useRouter();
-  const { user, signOut } = useAuth();
 
-  const displayName = user?.user_metadata?.name || user?.email?.split("@")[0] || "User";
-  const displayInitial = (user?.user_metadata?.name || user?.email || "?")[0]?.toUpperCase() || "?";
+  // Zustand selectors
+  const user = useAuthStore((s) => s.user);
+  const signOut = useAuthStore((s) => s.signOut);
+  const displayName = useUserDisplayName();
+  const displayInitial = useUserInitial();
 
   const handleSignOut = async () => {
     await signOut();
@@ -102,13 +105,16 @@ export function MobileHeader() {
           >
             Settings
           </Link>
-          <button
-            onClick={handleSignOut}
-            className="flex w-full items-center gap-2 py-2 text-sm text-[var(--state-error)] hover:text-[var(--state-error)]"
-          >
-            <LogOut className="h-4 w-4" />
-            Sign Out
-          </button>
+          {/* Sign out with confirmation */}
+          <ConfirmSignOutDialog onConfirm={handleSignOut}>
+            <button
+              onClick={() => setMenuOpen(false)}
+              className="flex w-full items-center gap-2 py-2 text-sm text-[var(--state-error)]"
+            >
+              <LogOut className="h-4 w-4" />
+              Sign Out
+            </button>
+          </ConfirmSignOutDialog>
         </div>
       )}
     </header>

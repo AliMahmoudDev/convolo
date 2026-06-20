@@ -6,11 +6,13 @@
  * - If logged in: shows user avatar + name dropdown with:
  *   → Dashboard (go to app)
  *   → Profile (go to /profile)
- *   → Sign Out
+ *   → Sign Out (with confirmation dialog)
  *
- * WHY: A logged-in user landing on the marketing page should see
- * their identity, not be offered "Sign Up" again. The dropdown
- * gives them a quick way to jump back into the app.
+ * Uses Zustand store (useAuthStore) for auth state instead of React Context.
+ * Only subscribes to the specific state slices it needs:
+ * - user (for displaying name/avatar)
+ * - isLoading (for showing loading state)
+ * - signOut (for the sign out action)
  */
 
 "use client";
@@ -23,7 +25,8 @@ import { Menu, XIcon, ChevronDown, LayoutDashboard, User, LogOut } from "lucide-
 import { Button } from "@/components/ui/button";
 import { ConvoloLogoFull } from "@/components/logo";
 import { ThemeToggle } from "@/components/marketing/theme-toggle";
-import { useAuth } from "@/components/auth/auth-provider";
+import { useAuthStore, useUserDisplayName, useUserInitial } from "@/stores/auth-store";
+import { ConfirmSignOutDialog } from "@/components/auth/confirm-sign-out";
 
 const navLinks = [
   { label: "Features", href: "/features" },
@@ -34,12 +37,8 @@ const navLinks = [
 /**
  * UserAvatar — shows the first letter of the user's name/email
  * inside a colored circle.
- *
- * WHY not use an image? We don't have profile image upload yet.
- * An initial avatar is the simplest, cleanest fallback.
  */
-function UserAvatar({ name, email }: { name?: string | null; email?: string | null }) {
-  const initial = (name || email || "?")[0]?.toUpperCase() || "?";
+function UserAvatar({ initial }: { initial: string }) {
   return (
     <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--accent-primary)] text-xs font-semibold text-white">
       {initial}
@@ -53,7 +52,13 @@ export function Navbar() {
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
-  const { user, isLoading, signOut } = useAuth();
+
+  // Zustand selectors — each only triggers re-render when its value changes
+  const user = useAuthStore((s) => s.user);
+  const isLoading = useAuthStore((s) => s.isLoading);
+  const signOut = useAuthStore((s) => s.signOut);
+  const displayName = useUserDisplayName();
+  const displayInitial = useUserInitial();
 
   // ─── Scroll listener for navbar background ───
   useEffect(() => {
@@ -80,9 +85,6 @@ export function Navbar() {
     router.push("/");
     router.refresh();
   };
-
-  // Get display name from user metadata (Supabase stores name in user_metadata)
-  const displayName = user?.user_metadata?.name || user?.email?.split("@")[0] || "User";
 
   return (
     <motion.nav
@@ -120,7 +122,6 @@ export function Navbar() {
             <ThemeToggle />
 
             {isLoading ? (
-              // Loading state — show a subtle spinner placeholder
               <div className="h-8 w-20 animate-pulse rounded-lg bg-[var(--bg-elevated)]" />
             ) : user ? (
               // ─── LOGGED IN: Profile Dropdown ───
@@ -129,7 +130,7 @@ export function Navbar() {
                   onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
                   className="flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-[var(--bg-elevated)]"
                 >
-                  <UserAvatar name={displayName} email={user.email} />
+                  <UserAvatar initial={displayInitial} />
                   <span className="max-w-[120px] truncate text-sm font-medium text-[var(--text-primary)]">
                     {displayName}
                   </span>
@@ -177,15 +178,17 @@ export function Navbar() {
                         </Link>
                       </div>
 
-                      {/* Sign out */}
+                      {/* Sign out — with confirmation dialog */}
                       <div className="border-t border-[var(--border-default)] py-1">
-                        <button
-                          onClick={handleSignOut}
-                          className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-[var(--state-error)] transition-colors hover:bg-[var(--state-error-light)]"
-                        >
-                          <LogOut className="h-4 w-4" />
-                          Sign Out
-                        </button>
+                        <ConfirmSignOutDialog onConfirm={handleSignOut}>
+                          <button
+                            onClick={() => setProfileDropdownOpen(false)}
+                            className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-[var(--state-error)] transition-colors hover:bg-[var(--state-error-light)]"
+                          >
+                            <LogOut className="h-4 w-4" />
+                            Sign Out
+                          </button>
+                        </ConfirmSignOutDialog>
                       </div>
                     </motion.div>
                   )}
@@ -258,7 +261,7 @@ export function Navbar() {
                 <div className="border-t border-[var(--border-default)] pt-3">
                   {/* User info */}
                   <div className="mb-3 flex items-center gap-3">
-                    <UserAvatar name={displayName} email={user.email} />
+                    <UserAvatar initial={displayInitial} />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-semibold text-[var(--text-primary)]">
                         {displayName}
@@ -282,13 +285,16 @@ export function Navbar() {
                     <User className="h-4 w-4" />
                     Profile
                   </Link>
-                  <button
-                    onClick={handleSignOut}
-                    className="flex w-full items-center gap-2 py-2 text-sm text-[var(--state-error)]"
-                  >
-                    <LogOut className="h-4 w-4" />
-                    Sign Out
-                  </button>
+                  {/* Sign out with confirmation */}
+                  <ConfirmSignOutDialog onConfirm={handleSignOut}>
+                    <button
+                      onClick={() => setMobileMenuOpen(false)}
+                      className="flex w-full items-center gap-2 py-2 text-sm text-[var(--state-error)]"
+                    >
+                      <LogOut className="h-4 w-4" />
+                      Sign Out
+                    </button>
+                  </ConfirmSignOutDialog>
                 </div>
               ) : (
                 // ─── Mobile: Not logged in ───

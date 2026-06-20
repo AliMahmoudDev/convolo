@@ -38,7 +38,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { useAuth } from "@/components/auth/auth-provider";
+import { useAuthStore } from "@/stores/auth-store";
 import { SUPPORTED_LANGUAGES, PROFICIENCY_LEVELS } from "@/lib/constants";
 
 // ═══════════════════════════════════════════
@@ -185,7 +185,8 @@ function EditableField({
 
 export default function ProfilePage() {
   const router = useRouter();
-  const { user, isLoading: authLoading, signOut } = useAuth();
+  const user = useAuthStore((s) => s.user);
+  const authLoading = useAuthStore((s) => s.isLoading);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

@@ -12,12 +12,12 @@ import {
   Flame,
   ChevronLeft,
   ChevronRight,
-  User,
 } from "lucide-react";
 import { ConvoloLogoFull, ConvoloLogo } from "@/components/logo";
-import { useAuth } from "@/components/auth/auth-provider";
+import { useAuthStore, useUserDisplayName, useUserInitial } from "@/stores/auth-store";
+import { ConfirmSignOutDialog } from "@/components/auth/confirm-sign-out";
 import { useRouter } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -30,12 +30,13 @@ const navItems = [
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, signOut } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
 
-  // Get display name from Supabase user metadata
-  const displayName = user?.user_metadata?.name || user?.email?.split("@")[0] || "User";
-  const displayInitial = (user?.user_metadata?.name || user?.email || "?")[0]?.toUpperCase() || "?";
+  // Zustand selectors
+  const signOut = useAuthStore((s) => s.signOut);
+  const user = useAuthStore((s) => s.user);
+  const displayName = useUserDisplayName();
+  const displayInitial = useUserInitial();
 
   const handleSignOut = async () => {
     await signOut();
@@ -137,16 +138,17 @@ export function Sidebar() {
           )}
         </Link>
 
-        {/* Sign out */}
-        <button
-          onClick={handleSignOut}
-          className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--state-error-light)] hover:text-[var(--state-error)] ${
-            collapsed ? "justify-center" : ""
-          }`}
-        >
-          <LogOut className="h-5 w-5 shrink-0" />
-          {!collapsed && <span>Sign Out</span>}
-        </button>
+        {/* Sign out — with confirmation dialog */}
+        <ConfirmSignOutDialog onConfirm={handleSignOut}>
+          <button
+            className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--state-error-light)] hover:text-[var(--state-error)] ${
+              collapsed ? "justify-center" : ""
+            }`}
+          >
+            <LogOut className="h-5 w-5 shrink-0" />
+            {!collapsed && <span>Sign Out</span>}
+          </button>
+        </ConfirmSignOutDialog>
       </div>
     </aside>
   );

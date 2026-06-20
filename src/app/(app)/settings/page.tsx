@@ -30,7 +30,8 @@ import {
   Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@/components/auth/auth-provider";
+import { useAuthStore } from "@/stores/auth-store";
+import { ConfirmSignOutDialog } from "@/components/auth/confirm-sign-out";
 import { SUPPORTED_LANGUAGES, PROFICIENCY_LEVELS } from "@/lib/constants";
 
 interface UserProfile {
@@ -44,10 +45,9 @@ interface UserProfile {
 
 export default function SettingsPage() {
   const router = useRouter();
-  const { signOut } = useAuth();
+  const signOut = useAuthStore((s) => s.signOut);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSigningOut, setIsSigningOut] = useState(false);
 
   const fetchProfile = useCallback(async () => {
     try {
@@ -69,7 +69,6 @@ export default function SettingsPage() {
   }, [fetchProfile]);
 
   const handleSignOut = async () => {
-    setIsSigningOut(true);
     await signOut();
     router.push("/login");
     router.refresh();
@@ -269,20 +268,16 @@ export default function SettingsPage() {
                   Sign out of your account on this device
                 </p>
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleSignOut}
-                disabled={isSigningOut}
-                className="rounded-lg text-sm text-[var(--state-error)] hover:bg-[var(--state-error-light)]"
-              >
-                {isSigningOut ? (
-                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                ) : (
+              <ConfirmSignOutDialog onConfirm={handleSignOut}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="rounded-lg text-sm text-[var(--state-error)] hover:bg-[var(--state-error-light)]"
+                >
                   <LogOut className="mr-1.5 h-4 w-4" />
-                )}
-                Sign Out
-              </Button>
+                  Sign Out
+                </Button>
+              </ConfirmSignOutDialog>
             </div>
           </div>
         </div>
