@@ -1,0 +1,338 @@
+// Convolo — Prisma Schema
+// Database: PostgreSQL (Supabase)
+// All enums, tables, and relations defined per database-schema.md
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ===========================
+// ENUMS
+// ===========================
+
+enum AuthProvider {
+  email
+  google
+  github
+}
+
+enum ProficiencyLevel {
+  beginner
+  intermediate
+  advanced
+}
+
+enum ConversationStatus {
+  active
+  completed
+  abandoned
+}
+
+enum MessageRole {
+  user
+  assistant
+  system
+}
+
+enum ScenarioCategory {
+  daily
+  travel
+  business
+  academic
+  social
+  medical
+}
+
+enum SubscriptionPlan {
+  free
+  pro_monthly
+  pro_yearly
+}
+
+enum SubscriptionStatus {
+  active
+  past_due
+  canceled
+  incomplete
+}
+
+enum AchievementType {
+  first_chat
+  streak_7
+  streak_30
+  words_50
+  words_100
+  words_500
+  sessions_10
+  sessions_50
+  score_90
+  early_bird
+  polyglot
+}
+
+enum AdminRole {
+  admin
+  super_admin
+}
+
+enum TextDirection {
+  ltr
+  rtl
+}
+
+// ===========================
+// MODELS
+// ===========================
+
+model User {
+  id                String           @id @default(uuid())
+  email             String           @unique
+  name              String
+  imageUrl          String?          @map("image_url")
+  supabaseUid      String?          @unique
+  provider          AuthProvider     @default(email)
+  targetLanguage    String?
+  nativeLanguage    String           @default("en")
+  proficiencyLevel  ProficiencyLevel @default(beginner)
+  dailyGoalMinutes  Int              @default(15)
+  timezone          String           @default("UTC")
+  emailVerified     DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  conversations     Conversation[]
+  vocabularyItems   VocabularyItem[]
+  achievements      Achievement[]
+  subscription      Subscription?
+  progress          UserProgress[]
+  dailyUsages       DailyUsage[]
+  @@index([targetLanguage])
+  @@index([createdAt(sort: Desc)])
+  @@map("users")
+}
+
+model Conversation {
+  id              String             @id @default(uuid())
+  userId          String
+  scenarioId      String?
+  languagePair    String
+  status          ConversationStatus @default(active)
+  difficultyLevel ProficiencyLevel   @default(intermediate)
+  startedAt       DateTime           @default(now())
+  endedAt         DateTime?
+  messageCount    Int                @default(0)
+  overallScore    Float?
+  createdAt       DateTime           @default(now())
+
+  user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scenario        Scenario?          @relation(fields: [scenarioId], references: [id])
+  messages        Message[]
+
+  @@index([userId])
+  @@index([scenarioId])
+  @@index([status])
+  @@index([startedAt(sort: Desc)])
+  @@map("conversations")
+}
+
+model Message {
+  id                String    @id @default(uuid())
+  conversationId    String
+  role              MessageRole
+  content           String
+  contentTranslated String?
+  corrections       Json?
+  vocabularyItems   Json?
+  grammarNotes      Json?
+  pronunciationScore Float?
+  audioUrl          String?
+  metadata          Json?
+  createdAt         DateTime  @default(now())
+
+  conversation      Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([role])
+  @@index([createdAt])
+  @@map("messages")
+}
+
+model Scenario {
+  id              String           @id @default(uuid())
+  title           String
+  description     String
+  languagePair    String
+  category        ScenarioCategory
+  difficultyLevel ProficiencyLevel
+  systemPrompt    String
+  openingLine     String
+  keyVocabulary   Json?
+  culturalNotes   String?
+  estimatedMinutes Int             @default(10)
+  isPremium       Boolean          @default(false)
+  isPublished     Boolean          @default(false)
+  sortOrder      Int              @default(0)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  conversations   Conversation[]
+
+  @@index([languagePair])
+  @@index([category])
+  @@index([difficultyLevel])
+  @@index([isPublished, sortOrder])
+  @@map("scenarios")
+}
+
+model VocabularyItem {
+  id                    String    @id @default(uuid())
+  userId                String
+  word                  String
+  translation           String
+  definition            String?
+  partOfSpeech          String?
+  exampleSentence       String?
+  languagePair          String
+  sourceConversationId  String?
+  masteryLevel          Int       @default(0)
+  nextReviewAt          DateTime?
+  reviewCount           Int       @default(0)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, word, languagePair])
+  @@index([userId, nextReviewAt])
+  @@index([userId, masteryLevel])
+  @@map("vocabulary_items")
+}
+
+model UserProgress {
+  id                  String   @id @default(uuid())
+  userId              String
+  languagePair        String
+  totalConversations  Int      @default(0)
+  totalMessages       Int      @default(0)
+  totalMinutes        Int      @default(0)
+  totalWordsLearned   Int      @default(0)
+  totalCorrections    Int      @default(0)
+  avgScore            Float    @default(0)
+  currentStreak       Int      @default(0)
+  longestStreak       Int      @default(0)
+  lastPracticeAt      DateTime?
+  levelProgress       Float    @default(0)
+  xpPoints            Int      @default(0)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, languagePair])
+  @@index([currentStreak(sort: Desc)])
+  @@index([xpPoints(sort: Desc)])
+  @@map("user_progress")
+}
+
+model Achievement {
+  id              String          @id @default(uuid())
+  userId          String
+  achievementType AchievementType
+  unlockedAt      DateTime        @default(now())
+
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, achievementType])
+  @@index([achievementType])
+  @@map("achievements")
+}
+
+model Subscription {
+  id                   String             @id @default(uuid())
+  userId               String             @unique
+  stripeCustomerId     String             @unique
+  stripeSubscriptionId String?            @unique
+  stripePriceId        String?
+  plan                 SubscriptionPlan   @default(free)
+  status               SubscriptionStatus @default(active)
+  currentPeriodStart   DateTime?
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean            @default(false)
+  trialStart           DateTime?
+  trialEnd             DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([stripeCustomerId])
+  @@index([stripeSubscriptionId])
+  @@index([status])
+  @@map("subscriptions")
+}
+
+model DailyUsage {
+  id                 String   @id @default(uuid())
+  userId             String
+  date               DateTime @db.Date
+  conversationsCount Int      @default(0)
+  messagesCount      Int      @default(0)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([date])
+  @@map("daily_usage")
+}
+
+model SupportedLanguage {
+  id          String       @id @default(uuid())
+  code        String       @unique
+  name        String
+  nativeName  String
+  direction   TextDirection @default(ltr)
+  flagEmoji   String
+  isActive    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+
+  @@index([isActive])
+  @@map("supported_languages")
+}
+
+model Admin {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  name         String
+  role         AdminRole @default(admin)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  auditLogs    AuditLog[]
+
+  @@map("admins")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  adminId    String
+  action     String
+  entityType String
+  entityId   String
+  details    Json?
+  createdAt  DateTime @default(now())
+
+  admin      Admin    @relation(fields: [adminId], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([createdAt(sort: Desc)])
+  @@map("audit_log")
+}
