@@ -51,6 +51,13 @@ interface Conversation {
   scenario: { title: string } | null;
 }
 
+interface UserStats {
+  conversations: number;
+  wordsLearned: number;
+  dayStreak: number;
+  xpPoints: number;
+}
+
 // ═══════════════════════════════════════════
 // Helper
 // ═══════════════════════════════════════════
@@ -82,6 +89,12 @@ export default function DashboardPage() {
   const nativeLang = useNativeLanguage();
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [stats, setStats] = useState<UserStats>({
+    conversations: 0,
+    wordsLearned: 0,
+    dayStreak: 0,
+    xpPoints: 0,
+  });
   const [isPageLoading, setIsPageLoading] = useState(true);
   const [activePicker, setActivePicker] = useState<"native" | "target" | null>(null);
   const [isUpdatingLang, setIsUpdatingLang] = useState<string | null>(null);
@@ -112,15 +125,24 @@ export default function DashboardPage() {
     };
   }, [activePicker]);
 
-  // ─── Fetch profile + conversations on mount ───
+  // ─── Fetch profile + conversations + stats on mount ───
   useEffect(() => {
     async function fetchData() {
       try {
-        const [_, convRes] = await Promise.all([fetchProfile(), fetch("/api/conversations")]);
+        const [_, convRes, statsRes] = await Promise.all([
+          fetchProfile(),
+          fetch("/api/conversations"),
+          fetch("/api/user/stats"),
+        ]);
 
         const convData = await convRes.json();
         if (convData.success && convData.data) {
           setConversations((convData.data.conversations || []).slice(0, 3));
+        }
+
+        const statsData = await statsRes.json();
+        if (statsData.success && statsData.data) {
+          setStats(statsData.data);
         }
       } catch {
         // Silently fail
@@ -377,28 +399,28 @@ export default function DashboardPage() {
         {[
           {
             label: "Conversations",
-            value: "0",
+            value: String(stats.conversations),
             icon: MessageSquare,
             color: "text-[var(--accent-primary)]",
             bg: "bg-[var(--accent-light)]",
           },
           {
             label: "Words Learned",
-            value: "0",
+            value: String(stats.wordsLearned),
             icon: BookOpen,
             color: "text-[var(--state-success)]",
             bg: "bg-green-50 dark:bg-green-900/20",
           },
           {
             label: "Day Streak",
-            value: "0",
+            value: String(stats.dayStreak),
             icon: Flame,
             color: "text-[var(--color-gold)]",
             bg: "bg-[var(--color-gold-light)]",
           },
           {
             label: "XP Points",
-            value: "0",
+            value: String(stats.xpPoints),
             icon: Zap,
             color: "text-purple-500",
             bg: "bg-purple-50 dark:bg-purple-900/20",

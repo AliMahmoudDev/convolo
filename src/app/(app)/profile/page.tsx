@@ -1,26 +1,19 @@
 /**
  * /profile — User Profile Page
  *
- * Shows the user's full profile with real data from the API.
- * Also allows editing name and learning preferences.
+ * Shows the user's profile with real data from the shared profile store.
+ * Name is editable inline. Languages are DISPLAY-ONLY (change on Dashboard).
  *
- * WHY A DEDICATED PROFILE PAGE?
- * - The settings page is for account management (password, notifications, danger zone)
- * - The profile page is for identity + learning preferences (name, languages, level)
- * - Separation of concerns: identity stuff vs. account security stuff
- * - A "profile" link in the navbar feels more natural than "settings"
- *
- * HOW IT WORKS:
- * 1. On mount, fetches GET /api/user/profile for real data
- * 2. Shows a loading skeleton while fetching
- * 3. Displays profile in editable sections
- * 4. On save, calls PUT /api/user/profile (we'll build this)
+ * Language switching pattern (Duolingo-style):
+ * - ALL language changes happen on the Dashboard (Language Card)
+ * - This page shows languages as read-only badges + "Change on Dashboard" link
+ * - This prevents the scattered language switcher problem
  */
 
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
 import {
   User,
   Mail,
@@ -35,53 +28,28 @@ import {
   Zap,
   MessageSquare,
   BookOpen,
+  ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAuthStore } from "@/stores/auth-store";
+import { useProfileStore, useTargetLanguage, useNativeLanguage } from "@/stores/profile-store";
 import { SUPPORTED_LANGUAGES, PROFICIENCY_LEVELS } from "@/lib/constants";
 
 // ═══════════════════════════════════════════
-// Types
+// Editable Field Component (for name only)
 // ═══════════════════════════════════════════
 
-interface UserProfile {
-  id: string;
-  name: string | null;
-  email: string | null;
-  nativeLanguage: string;
-  targetLanguage: string | null;
-  proficiencyLevel: string;
-  isPro: boolean;
-}
-
-// ═══════════════════════════════════════════
-// Editable Field Component
-// ═══════════════════════════════════════════
-
-/**
- * EditableField — Shows a value that can be toggled into edit mode.
- *
- * WHY: Instead of a full form, we use inline editing.
- * It's faster to use and feels more modern. Click the edit
- * icon → the field turns into an input → save or cancel.
- */
 function EditableField({
   label,
   value,
   icon: Icon,
   onSave,
-  type = "text",
-  options,
-  isLoading,
 }: {
   label: string;
   value: string;
   icon: React.ElementType;
   onSave: (newValue: string) => Promise<void>;
-  type?: "text" | "select";
-  options?: { value: string; label: string }[];
-  isLoading?: boolean;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(value);
@@ -97,7 +65,6 @@ function EditableField({
       await onSave(editValue);
       setIsEditing(false);
     } catch {
-      // Revert on error
       setEditValue(value);
     } finally {
       setIsSaving(false);
@@ -109,7 +76,6 @@ function EditableField({
     setIsEditing(false);
   };
 
-  // Sync external value changes
   useEffect(() => {
     setEditValue(value);
   }, [value]);
@@ -123,28 +89,14 @@ function EditableField({
 
       {isEditing ? (
         <div className="flex items-center gap-2">
-          {type === "select" && options ? (
-            <select
-              value={editValue}
-              onChange={(e) => setEditValue(e.target.value)}
-              className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-base)] px-3 py-1.5 text-sm text-[var(--text-primary)]"
-            >
-              {options.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <input
-              type="text"
-              value={editValue}
-              onChange={(e) => setEditValue(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSave()}
-              autoFocus
-              className="w-48 rounded-lg border border-[var(--border-default)] bg-[var(--bg-base)] px-3 py-1.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]"
-            />
-          )}
+          <input
+            type="text"
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleSave()}
+            autoFocus
+            className="w-48 rounded-lg border border-[var(--border-default)] bg-[var(--bg-base)] px-3 py-1.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]"
+          />
           <button
             onClick={handleSave}
             disabled={isSaving}
@@ -184,64 +136,34 @@ function EditableField({
 // ═══════════════════════════════════════════
 
 export default function ProfilePage() {
-  const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const authLoading = useAuthStore((s) => s.isLoading);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  // ─── Fetch profile data ───
-  const fetchProfile = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      const res = await fetch("/api/user/profile");
+  // Profile from shared store
+  const profile = useProfileStore((s) => s.profile);
+  const fetchProfile = useProfileStore((s) => s.fetchProfile);
+  const updateProfile = useProfileStore((s) => s.updateProfile);
+  const isProfileInitialized = useProfileStore((s) => s.isInitialized);
+  const targetLang = useTargetLanguage();
+  const nativeLang = useNativeLanguage();
 
-      // Safely parse JSON — the server might return HTML on crash
-      let data;
-      try {
-        data = await res.json();
-      } catch {
-        throw new Error("Server returned an invalid response. Please refresh the page.");
-      }
-
-      if (!res.ok || !data.success) {
-        throw new Error(data.error?.message || "Failed to load profile");
-      }
-
-      setProfile(data.data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
+  // ─── Fetch profile on mount ───
   useEffect(() => {
-    fetchProfile();
-  }, [fetchProfile]);
-
-  // ─── Save a profile field ───
-  const handleSaveField = async (field: string, value: string | null) => {
-    const res = await fetch("/api/user/profile", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ [field]: value }),
-    });
-
-    const data = await res.json();
-
-    if (!res.ok || !data.success) {
-      throw new Error(data.error?.message || "Failed to update");
+    if (!isProfileInitialized) {
+      fetchProfile();
     }
+  }, [isProfileInitialized, fetchProfile]);
 
-    // Update local state
-    setProfile((prev) => (prev ? { ...prev, [field]: value } : null));
-  };
+  // ─── Save name (updates shared store) ───
+  const handleSaveName = useCallback(
+    async (name: string) => {
+      await updateProfile({ name });
+    },
+    [updateProfile]
+  );
 
   // ─── Loading state ───
-  if (isLoading || authLoading) {
+  if (!isProfileInitialized || authLoading) {
     return (
       <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
         <div className="animate-pulse space-y-6">
@@ -260,41 +182,11 @@ export default function ProfilePage() {
     );
   }
 
-  // ─── Error state ───
-  if (error && !profile) {
-    return (
-      <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
-        <div className="rounded-2xl border border-[var(--state-error)]/20 bg-[var(--bg-surface)] p-8 text-center">
-          <p className="mb-2 text-base font-semibold text-[var(--text-primary)]">
-            Failed to load profile
-          </p>
-          <p className="mb-4 text-sm text-[var(--text-muted)]">{error}</p>
-          <Button onClick={fetchProfile} variant="outline" size="sm">
-            Try Again
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
   if (!profile) return null;
 
-  // Get display info
   const displayName = profile.name || user?.user_metadata?.name || "Set your name";
   const displayInitial = (profile.name || user?.email || "?")[0]?.toUpperCase() || "?";
-  const nativeLang = SUPPORTED_LANGUAGES.find((l) => l.code === profile.nativeLanguage);
-  const targetLang = SUPPORTED_LANGUAGES.find((l) => l.code === profile.targetLanguage);
-
-  // Language options for selects
-  const languageOptions = SUPPORTED_LANGUAGES.map((l) => ({
-    value: l.code,
-    label: `${l.flagEmoji} ${l.name}`,
-  }));
-
-  const levelOptions = PROFICIENCY_LEVELS.map((l) => ({
-    value: l,
-    label: l.charAt(0).toUpperCase() + l.slice(1),
-  }));
+  const level = profile.proficiencyLevel || "beginner";
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
@@ -320,49 +212,6 @@ export default function ProfilePage() {
         </div>
       </div>
 
-      {/* ─── Quick Stats ─── */}
-      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {[
-          {
-            icon: MessageSquare,
-            label: "Conversations",
-            value: "0",
-            color: "text-[var(--accent-primary)]",
-            bg: "bg-[var(--accent-light)]",
-          },
-          {
-            icon: BookOpen,
-            label: "Words Learned",
-            value: "0",
-            color: "text-[var(--accent-secondary)]",
-            bg: "bg-[var(--accent-secondary-light)]",
-          },
-          {
-            icon: Flame,
-            label: "Day Streak",
-            value: "0",
-            color: "text-[var(--color-gold)]",
-            bg: "bg-[var(--color-gold-light)]",
-          },
-          {
-            icon: Zap,
-            label: "XP Points",
-            value: "0",
-            color: "text-[var(--state-success)]",
-            bg: "bg-[var(--bg-elevated)]",
-          },
-        ].map((stat) => (
-          <div
-            key={stat.label}
-            className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-3 text-center"
-          >
-            <stat.icon className={`mx-auto mb-1.5 h-5 w-5 ${stat.color}`} />
-            <p className="text-lg font-bold text-[var(--text-primary)]">{stat.value}</p>
-            <p className="text-[10px] text-[var(--text-muted)]">{stat.label}</p>
-          </div>
-        ))}
-      </div>
-
       {/* ─── Personal Info ─── */}
       <div className="mb-6 overflow-hidden rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)]">
         <div className="flex items-center gap-3 border-b border-[var(--border-default)] px-6 py-4">
@@ -379,7 +228,7 @@ export default function ProfilePage() {
             label="Display Name"
             value={profile.name || ""}
             icon={User}
-            onSave={(v) => handleSaveField("name", v)}
+            onSave={handleSaveName}
           />
           <div className="flex items-center justify-between px-6 py-4">
             <div className="flex items-center gap-3">
@@ -391,50 +240,59 @@ export default function ProfilePage() {
         </div>
       </div>
 
-      {/* ─── Learning Preferences ─── */}
+      {/* ─── Learning Preferences — DISPLAY ONLY ─── */}
       <div className="mb-6 overflow-hidden rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)]">
-        <div className="flex items-center gap-3 border-b border-[var(--border-default)] px-6 py-4">
-          <Globe className="h-5 w-5 text-[var(--accent-primary)]" />
-          <h2
-            className="text-base font-semibold text-[var(--text-primary)]"
-            style={{ fontFamily: "var(--font-heading-cfg)" }}
+        <div className="flex items-center justify-between border-b border-[var(--border-default)] px-6 py-4">
+          <div className="flex items-center gap-3">
+            <Globe className="h-5 w-5 text-[var(--accent-primary)]" />
+            <h2
+              className="text-base font-semibold text-[var(--text-primary)]"
+              style={{ fontFamily: "var(--font-heading-cfg)" }}
+            >
+              Learning Preferences
+            </h2>
+          </div>
+          <Link
+            href="/dashboard"
+            className="inline-flex items-center gap-1 text-xs font-medium text-[var(--accent-primary)] hover:text-[var(--accent-hover)]"
           >
-            Learning Preferences
-          </h2>
+            Change on Dashboard
+            <ExternalLink className="h-3 w-3" />
+          </Link>
         </div>
         <div className="divide-y divide-[var(--border-default)]">
-          <EditableField
-            label="Native Language"
-            value={
-              nativeLang ? `${nativeLang.flagEmoji} ${nativeLang.name}` : profile.nativeLanguage
-            }
-            icon={Globe}
-            type="select"
-            options={languageOptions}
-            onSave={(v) => handleSaveField("nativeLanguage", v)}
-          />
-          <EditableField
-            label="Target Language"
-            value={
-              targetLang
-                ? `${targetLang.flagEmoji} ${targetLang.name}`
-                : profile.targetLanguage || ""
-            }
-            icon={Target}
-            type="select"
-            options={[{ value: "", label: "Not selected" }, ...languageOptions]}
-            onSave={(v) => handleSaveField("targetLanguage", v || null)}
-          />
-          <EditableField
-            label="Proficiency Level"
-            value={
-              profile.proficiencyLevel.charAt(0).toUpperCase() + profile.proficiencyLevel.slice(1)
-            }
-            icon={Target}
-            type="select"
-            options={levelOptions}
-            onSave={(v) => handleSaveField("proficiencyLevel", v)}
-          />
+          {/* Native language — read-only badge */}
+          <div className="flex items-center justify-between px-6 py-4">
+            <div className="flex items-center gap-3">
+              <Globe className="h-4.5 w-4.5 text-[var(--text-muted)]" />
+              <span className="text-sm text-[var(--text-secondary)]">Native Language</span>
+            </div>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--bg-elevated)] px-3 py-1 text-sm font-medium text-[var(--text-primary)]">
+              {nativeLang.flagEmoji} {nativeLang.name}
+            </span>
+          </div>
+
+          {/* Target language — read-only badge */}
+          <div className="flex items-center justify-between px-6 py-4">
+            <div className="flex items-center gap-3">
+              <Target className="h-4.5 w-4.5 text-[var(--text-muted)]" />
+              <span className="text-sm text-[var(--text-secondary)]">Target Language</span>
+            </div>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--accent-light)] px-3 py-1 text-sm font-medium text-[var(--accent-primary)]">
+              {targetLang.flagEmoji} {targetLang.name}
+            </span>
+          </div>
+
+          {/* Proficiency level — read-only badge */}
+          <div className="flex items-center justify-between px-6 py-4">
+            <div className="flex items-center gap-3">
+              <Target className="h-4.5 w-4.5 text-[var(--text-muted)]" />
+              <span className="text-sm text-[var(--text-secondary)]">Proficiency Level</span>
+            </div>
+            <span className="inline-flex items-center rounded-full bg-[var(--bg-elevated)] px-3 py-1 text-sm text-[var(--text-secondary)] capitalize">
+              {level}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -461,13 +319,15 @@ export default function ProfilePage() {
             </p>
           </div>
           {!profile.isPro && (
-            <Button
-              size="sm"
-              className="gradient-conbolo h-8 rounded-lg border-0 px-4 text-xs text-white"
-            >
-              <Crown className="mr-1 h-3.5 w-3.5" />
-              Upgrade
-            </Button>
+            <Link href="/pricing">
+              <Button
+                size="sm"
+                className="gradient-conbolo h-8 rounded-lg border-0 px-4 text-xs text-white"
+              >
+                <Crown className="mr-1 h-3.5 w-3.5" />
+                Upgrade
+              </Button>
+            </Link>
           )}
         </div>
       </div>

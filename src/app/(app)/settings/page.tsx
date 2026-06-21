@@ -17,6 +17,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   User,
   Mail,
@@ -28,6 +29,7 @@ import {
   Crown,
   Bell,
   Loader2,
+  ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/stores/auth-store";
@@ -162,45 +164,31 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {/* ─── Learning Preferences ─── */}
+          {/* ─── Learning Preferences — Link to Dashboard ─── */}
           <div className="overflow-hidden rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)]">
-            <div className="flex items-center gap-3 border-b border-[var(--border-default)] px-6 py-4">
-              <Globe className="h-5 w-5 text-[var(--accent-primary)]" />
-              <h2
-                className="text-base font-semibold text-[var(--text-primary)]"
-                style={{ fontFamily: "var(--font-heading-cfg)" }}
+            <div className="flex items-center justify-between border-b border-[var(--border-default)] px-6 py-4">
+              <div className="flex items-center gap-3">
+                <Globe className="h-5 w-5 text-[var(--accent-primary)]" />
+                <h2
+                  className="text-base font-semibold text-[var(--text-primary)]"
+                  style={{ fontFamily: "var(--font-heading-cfg)" }}
+                >
+                  Learning Preferences
+                </h2>
+              </div>
+              <Link
+                href="/dashboard"
+                className="inline-flex items-center gap-1 rounded-xl bg-[var(--accent-light)] px-3 py-2 text-xs font-semibold text-[var(--accent-primary)] transition-colors hover:bg-[var(--accent-primary)] hover:text-white"
               >
-                Learning Preferences
-              </h2>
+                Manage on Dashboard
+                <ExternalLink className="h-3 w-3" />
+              </Link>
             </div>
-            <div className="divide-y divide-[var(--border-default)]">
-              <div className="flex items-center justify-between px-6 py-4">
-                <div className="flex items-center gap-3">
-                  <Globe className="h-4.5 w-4.5 text-[var(--text-muted)]" />
-                  <span className="text-sm text-[var(--text-secondary)]">Native Language</span>
-                </div>
-                <span className="text-sm font-medium text-[var(--text-primary)]">
-                  {getLangDisplay(profile?.nativeLanguage || "en")}
-                </span>
-              </div>
-              <div className="flex items-center justify-between px-6 py-4">
-                <div className="flex items-center gap-3">
-                  <Target className="h-4.5 w-4.5 text-[var(--text-muted)]" />
-                  <span className="text-sm text-[var(--text-secondary)]">Target Language</span>
-                </div>
-                <span className="text-sm font-medium text-[var(--text-primary)]">
-                  {getLangDisplay(profile?.targetLanguage || null)}
-                </span>
-              </div>
-              <div className="flex items-center justify-between px-6 py-4">
-                <div className="flex items-center gap-3">
-                  <Target className="h-4.5 w-4.5 text-[var(--text-muted)]" />
-                  <span className="text-sm text-[var(--text-secondary)]">Proficiency Level</span>
-                </div>
-                <span className="text-sm font-medium text-[var(--text-primary)]">
-                  {getLevelDisplay(profile?.proficiencyLevel || "beginner")}
-                </span>
-              </div>
+            <div className="px-6 py-4">
+              <p className="text-sm text-[var(--text-muted)]">
+                Languages and proficiency level are managed on the Dashboard. This ensures a
+                consistent experience across the app.
+              </p>
             </div>
           </div>
 

@@ -162,6 +162,8 @@ export async function POST(request: NextRequest) {
     let openingMessage = "Hello! Let's start practicing. How are you today?";
     let openingTranslation: string | null = null;
     let openingVocabulary: unknown[] = [];
+    let openingSuggestions: string[] = [];
+    let openingGrammar: unknown[] = [];
 
     try {
       const [sourceLang, targetLang] = languagePair.split("-");
@@ -187,6 +189,8 @@ export async function POST(request: NextRequest) {
       openingMessage = aiResponse.reply || openingMessage;
       openingTranslation = aiResponse.translatedReply || null;
       openingVocabulary = aiResponse.vocabularyItems || [];
+      openingSuggestions = aiResponse.suggestions || [];
+      openingGrammar = aiResponse.grammarNotes || [];
     } catch (aiError) {
       console.error("[Conversations API] AI generation failed, using fallback:", aiError);
     }
@@ -205,6 +209,17 @@ export async function POST(request: NextRequest) {
     }
     if (Array.isArray(openingVocabulary) && openingVocabulary.length > 0) {
       openingMsgData.vocabularyItems = openingVocabulary;
+    }
+    if (Array.isArray(openingGrammar) && openingGrammar.length > 0) {
+      openingMsgData.grammarNotes = openingGrammar;
+    }
+    // Store suggestions in metadata
+    const openingMetadata: Record<string, unknown> = {};
+    if (Array.isArray(openingSuggestions) && openingSuggestions.length > 0) {
+      openingMetadata.suggestions = openingSuggestions;
+    }
+    if (Object.keys(openingMetadata).length > 0) {
+      openingMsgData.metadata = openingMetadata;
     }
 
     const { error: msgError } = await db.from("messages").insert(openingMsgData);
