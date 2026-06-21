@@ -1,0 +1,710 @@
+     1→     1→/**
+     2→     2→ * Dashboard — Main hub for the app.
+     3→     3→ *
+     4→     4→ * Features:
+     5→     5→ * - Personalized greeting with user's name
+     6→     6→ * - Language Card (prominent, like Duolingo) — change BOTH languages here
+     7→     7→ * - Live stats from user profile
+     8→     8→ * - Quick actions
+     9→     9→ * - Recent conversations
+    10→    10→ *
+    11→    11→ * Language switching pattern (like Duolingo/Babbel):
+    12→    12→ * - ALL language changes happen HERE on the Dashboard (Language Card)
+    13→    13→ * - Learn page: Display-only, "Change" link goes to Dashboard
+    14→    14→ * - Chat: Display-only, no switching mid-conversation
+    15→    15→ * - Interface language: Settings only (future feature)
+    16→    16→ */
+    17→    17→
+    18→    18→"use client";
+    19→    19→
+    20→    20→import { useState, useEffect, useCallback, useRef, Suspense } from "react";
+    21→    21→import Link from "next/link";
+    22→    22→import { useRouter, useSearchParams } from "next/navigation";
+    23→    23→import {
+    24→    24→  MessageSquare,
+    25→    25→  BookOpen,
+    26→    26→  Flame,
+    27→    27→  Zap,
+    28→    28→  ArrowRight,
+    29→    29→  Globe,
+    30→    30→  ChevronDown,
+    31→    31→  Check,
+    32→    32→  Crown,
+    33→    33→  Play,
+    34→    34→  Trophy,
+    35→    35→  Loader2,
+    36→    36→  Lock,
+    37→    37→  Sparkles,
+    38→    38→  CheckCircle2,
+    39→    39→} from "lucide-react";
+    40→    40→import { Button } from "@/components/ui/button";
+    41→    41→import { SUPPORTED_LANGUAGES, type ProficiencyLevel } from "@/lib/constants";
+    42→    42→import { useProfileStore, useTargetLanguage, useNativeLanguage } from "@/stores/profile-store";
+    43→    43→
+    44→    44→// ═══════════════════════════════════════════
+    45→    45→// Types
+    46→    46→// ═══════════════════════════════════════════
+    47→    47→
+    48→    48→interface Conversation {
+    49→    49→  id: string;
+    50→    50→  languagePair: string;
+    51→    51→  status: string;
+    52→    52→  messageCount: number;
+    53→    53→  startedAt: string;
+    54→    54→  scenario: { title: string } | null;
+    55→    55→}
+    56→    56→
+    57→    57→interface UserStats {
+    58→    58→  conversations: number;
+    59→    59→  wordsLearned: number;
+    60→    60→  dayStreak: number;
+    61→    61→  xpPoints: number;
+    62→    62→}
+    63→    63→
+    64→    64→interface Achievement {
+    65→    65→  id: string;
+    66→    66→  title: string;
+    67→    67→  description: string;
+    68→    68→  icon: string;
+    69→    69→  unlocked: boolean;
+    70→    70→}
+    71→    71→
+    72→    72→// ═══════════════════════════════════════════
+    73→    73→// Helper
+    74→    74→// ═══════════════════════════════════════════
+    75→    75→
+    76→    76→function getLangInfo(code: string) {
+    77→    77→  return (
+    78→    78→    SUPPORTED_LANGUAGES.find((l) => l.code === code) || {
+    79→    79→      code,
+    80→    80→      name: code,
+    81→    81→      flagEmoji: "🌐",
+    82→    82→      nativeName: code,
+    83→    83→    }
+    84→    84→  );
+    85→    85→}
+    86→    86→
+    87→    87→// ═══════════════════════════════════════════
+    88→    88→// Component
+    89→    89→// ═══════════════════════════════════════════
+    90→    90→
+    91→    91→function DashboardPageContent() {
+    92→    92→  const router = useRouter();
+    93→    93→  const searchParams = useSearchParams();
+    94→    94→  const isUpgraded = searchParams.get("upgraded") === "true";
+    95→    95→
+    96→    96→  // Profile from shared store
+    97→    97→  const profile = useProfileStore((s) => s.profile);
+    98→    98→  const fetchProfile = useProfileStore((s) => s.fetchProfile);
+    99→    99→  const updateProfile = useProfileStore((s) => s.updateProfile);
+   100→   100→  const isProfileInitialized = useProfileStore((s) => s.isInitialized);
+   101→   101→  const targetLang = useTargetLanguage();
+   102→   102→  const nativeLang = useNativeLanguage();
+   103→   103→
+   104→   104→  const [conversations, setConversations] = useState<Conversation[]>([]);
+   105→   105→  const [stats, setStats] = useState<UserStats>({
+   106→   106→    conversations: 0,
+   107→   107→    wordsLearned: 0,
+   108→   108→    dayStreak: 0,
+   109→   109→    xpPoints: 0,
+   110→   110→  });
+   111→   111→  const [achievements, setAchievements] = useState<Achievement[]>([]);
+   112→   112→  const [isPageLoading, setIsPageLoading] = useState(true);
+   113→   113→  const [activePicker, setActivePicker] = useState<"native" | "target" | null>(null);
+   114→   114→  const [isUpdatingLang, setIsUpdatingLang] = useState<string | null>(null);
+   115→   115→
+   116→   116→  // Ref for the picker container — used for click-outside detection
+   117→   117→  const pickerRef = useRef<HTMLDivElement>(null);
+   118→   118→
+   119→   119→  // ─── Close picker when clicking outside ───
+   120→   120→  useEffect(() => {
+   121→   121→    if (!activePicker) return;
+   122→   122→
+   123→   123→    function handleClickOutside(e: MouseEvent) {
+   124→   124→      // If the click is inside the picker container, don't close
+   125→   125→      if (pickerRef.current && pickerRef.current.contains(e.target as Node)) {
+   126→   126→        return;
+   127→   127→      }
+   128→   128→      setActivePicker(null);
+   129→   129→    }
+   130→   130→
+   131→   131→    // Use setTimeout to avoid the same click that opened the picker from closing it
+   132→   132→    const timer = setTimeout(() => {
+   133→   133→      document.addEventListener("mousedown", handleClickOutside);
+   134→   134→    }, 0);
+   135→   135→
+   136→   136→    return () => {
+   137→   137→      clearTimeout(timer);
+   138→   138→      document.removeEventListener("mousedown", handleClickOutside);
+   139→   139→    };
+   140→   140→  }, [activePicker]);
+   141→   141→
+   142→   142→  // ─── Fetch profile + conversations + stats on mount ───
+   143→   143→  useEffect(() => {
+   144→   144→    async function fetchData() {
+   145→   145→      try {
+   146→   146→        const [_, convRes, statsRes, achRes] = await Promise.all([
+   147→   147→          fetchProfile(),
+   148→   148→          fetch("/api/conversations"),
+   149→   149→          fetch("/api/user/stats"),
+   150→   150→          fetch("/api/achievements"),
+   151→   151→        ]);
+   152→   152→
+   153→   153→        const convData = await convRes.json();
+   154→   154→        if (convData.success && convData.data) {
+   155→   155→          setConversations((convData.data.conversations || []).slice(0, 3));
+   156→   156→        }
+   157→   157→
+   158→   158→        const statsData = await statsRes.json();
+   159→   159→        if (statsData.success && statsData.data) {
+   160→   160→          setStats(statsData.data);
+   161→   161→        }
+   162→   162→
+   163→   163→        const achData = await achRes.json();
+   164→   164→        if (achData.success && achData.data?.achievements) {
+   165→   165→          setAchievements(achData.data.achievements);
+   166→   166→        }
+   167→   167→      } catch {
+   168→   168→        // Silently fail
+   169→   169→      } finally {
+   170→   170→        setIsPageLoading(false);
+   171→   171→      }
+   172→   172→    }
+   173→   173→    fetchData();
+   174→   174→  }, [fetchProfile]);
+   175→   175→
+   176→   176→  // ─── Change target language ───
+   177→   177→  const handleTargetLangChange = useCallback(
+   178→   178→    async (newLang: string) => {
+   179→   179→      if (isUpdatingLang) return;
+   180→   180→      setIsUpdatingLang(newLang);
+   181→   181→      setActivePicker(null);
+   182→   182→
+   183→   183→      const result = await updateProfile({ targetLanguage: newLang });
+   184→   184→      if (!result) {
+   185→   185→        console.error("[Dashboard] Failed to update target language");
+   186→   186→      }
+   187→   187→      setIsUpdatingLang(null);
+   188→   188→    },
+   189→   189→    [isUpdatingLang, updateProfile]
+   190→   190→  );
+   191→   191→
+   192→   192→  // ─── Change native language ───
+   193→   193→  const handleNativeLangChange = useCallback(
+   194→   194→    async (newLang: string) => {
+   195→   195→      if (isUpdatingLang) return;
+   196→   196→      setIsUpdatingLang(newLang);
+   197→   197→      setActivePicker(null);
+   198→   198→
+   199→   199→      const result = await updateProfile({ nativeLanguage: newLang });
+   200→   200→      if (!result) {
+   201→   201→        console.error("[Dashboard] Failed to update native language");
+   202→   202→      }
+   203→   203→      setIsUpdatingLang(null);
+   204→   204→    },
+   205→   205→    [isUpdatingLang, updateProfile]
+   206→   206→  );
+   207→   207→
+   208→   208→  // ─── Loading state ───
+   209→   209→  if (!isProfileInitialized || isPageLoading) {
+   210→   210→    return (
+   211→   211→      <div className="flex min-h-[50vh] items-center justify-center">
+   212→   212→        <Loader2 className="h-8 w-8 animate-spin text-[var(--accent-primary)]" />
+   213→   213→      </div>
+   214→   214→    );
+   215→   215→  }
+   216→   216→
+   217→   217→  const level = profile?.proficiencyLevel || "beginner";
+   218→   218→  const firstName = profile?.name?.split(" ")[0] || "there";
+   219→   219→
+   220→   220→  return (
+   221→   221→    <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+   222→   222→      {/* Greeting */}
+   223→   223→      <div className="mb-8">
+   224→   224→        <h1
+   225→   225→          className="mb-1 text-2xl font-bold text-[var(--text-primary)] sm:text-3xl"
+   226→   226→          style={{ fontFamily: "var(--font-heading-cfg)" }}
+   227→   227→        >
+   228→   228→          Welcome back, {firstName} 👋
+   229→   229→        </h1>
+   230→   230→        <p className="text-[var(--text-secondary)]">Ready to practice {targetLang.name} today?</p>
+   231→   231→      </div>
+   232→   232→
+   233→   233→      {/* ═══ Language Card (Duolingo-style) ═══ */}
+   234→   234→      <div className="mb-8">
+   235→   235→        <div className="overflow-hidden rounded-2xl border border-[var(--border-default)] bg-gradient-to-br from-[var(--bg-surface)] to-[var(--accent-light)]/30">
+   236→   236→          {/* Main language display */}
+   237→   237→          <div className="flex items-center gap-4 p-5 sm:p-6">
+   238→   238→            {/* Big flag emoji — like Duolingo's course icon */}
+   239→   239→            <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl bg-[var(--accent-light)] text-4xl shadow-sm sm:h-24 sm:w-24 sm:text-5xl">
+   240→   240→              {targetLang.flagEmoji}
+   241→   241→            </div>
+   242→   242→
+   243→   243→            {/* Language info + pickers (wrapped in ref for click-outside) */}
+   244→   244→            <div className="min-w-0 flex-1" ref={pickerRef}>
+   245→   245→              <p className="text-xs font-medium tracking-wider text-[var(--text-muted)] uppercase">
+   246→   246→                I&apos;m learning
+   247→   247→              </p>
+   248→   248→              <h2
+   249→   249→                className="text-2xl font-bold text-[var(--text-primary)] sm:text-3xl"
+   250→   250→                style={{ fontFamily: "var(--font-heading-cfg)" }}
+   251→   251→              >
+   252→   252→                {targetLang.name}
+   253→   253→              </h2>
+   254→   254→              <p className="mt-0.5 text-sm text-[var(--text-secondary)]">{targetLang.nativeName}</p>
+   255→   255→              <div className="mt-2 flex flex-wrap items-center gap-2">
+   256→   256→                {/* Native language — clickable to change */}
+   257→   257→                <button
+   258→   258→                  onClick={(e) => {
+   259→   259→                    e.stopPropagation();
+   260→   260→                    setActivePicker(activePicker === "native" ? null : "native");
+   261→   261→                  }}
+   262→   262→                  className="inline-flex items-center gap-1 rounded-full bg-[var(--bg-elevated)] px-2.5 py-1 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--accent-light)] hover:text-[var(--accent-primary)]"
+   263→   263→                >
+   264→   264→                  {nativeLang.flagEmoji} {nativeLang.name}
+   265→   265→                  <ChevronDown
+   266→   266→                    className={`h-3 w-3 transition-transform ${activePicker === "native" ? "rotate-180" : ""}`}
+   267→   267→                  />
+   268→   268→                </button>
+   269→   269→                <span className="text-[var(--text-muted)]">→</span>
+   270→   270→                {/* Target language — clickable to change */}
+   271→   271→                <button
+   272→   272→                  onClick={(e) => {
+   273→   273→                    e.stopPropagation();
+   274→   274→                    setActivePicker(activePicker === "target" ? null : "target");
+   275→   275→                  }}
+   276→   276→                  className="inline-flex items-center gap-1 rounded-full bg-[var(--accent-light)] px-2.5 py-1 text-xs font-medium text-[var(--accent-primary)] transition-colors hover:bg-[var(--accent-primary)] hover:text-white"
+   277→   277→                >
+   278→   278→                  {targetLang.flagEmoji} {targetLang.name}
+   279→   279→                  <ChevronDown
+   280→   280→                    className={`h-3 w-3 transition-transform ${activePicker === "target" ? "rotate-180" : ""}`}
+   281→   281→                  />
+   282→   282→                </button>
+   283→   283→                <span className="inline-flex items-center rounded-full bg-[var(--bg-elevated)] px-2.5 py-1 text-xs text-[var(--text-secondary)] capitalize">
+   284→   284→                  {level}
+   285→   285→                </span>
+   286→   286→                {profile?.isPro && (
+   287→   287→                  <span className="inline-flex items-center gap-0.5 rounded-full bg-[var(--color-gold-light)] px-2.5 py-1 text-xs font-medium text-[var(--color-gold)]">
+   288→   288→                    <Crown className="h-3 w-3" /> Pro
+   289→   289→                  </span>
+   290→   290→                )}
+   291→   291→              </div>
+   292→   292→
+   293→   293→              {/* ═══ Native language picker ═══ */}
+   294→   294→              {activePicker === "native" && (
+   295→   295→                <div className="relative z-50 mt-3 w-72 rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-2 shadow-[var(--shadow-lg)]">
+   296→   296→                  <p className="mb-2 px-3 text-[10px] font-medium tracking-wider text-[var(--text-muted)] uppercase">
+   297→   297→                    I speak (native language)
+   298→   298→                  </p>
+   299→   299→                  <div className="max-h-64 overflow-y-auto">
+   300→   300→                    {SUPPORTED_LANGUAGES.filter(
+   301→   301→                      (l) => l.code !== (profile?.targetLanguage || "ar")
+   302→   302→                    ).map((lang) => (
+   303→   303→                      <button
+   304→   304→                        key={lang.code}
+   305→   305→                        onClick={(e) => {
+   306→   306→                          e.stopPropagation();
+   307→   307→                          handleNativeLangChange(lang.code);
+   308→   308→                        }}
+   309→   309→                        disabled={!!isUpdatingLang}
+   310→   310→                        className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors hover:bg-[var(--bg-elevated)] disabled:opacity-50 ${
+   311→   311→                          lang.code === profile?.nativeLanguage
+   312→   312→                            ? "bg-[var(--accent-light)] text-[var(--accent-primary)]"
+   313→   313→                            : "text-[var(--text-primary)]"
+   314→   314→                        }`}
+   315→   315→                      >
+   316→   316→                        <span className="text-xl">{lang.flagEmoji}</span>
+   317→   317→                        <div className="min-w-0 flex-1 text-left">
+   318→   318→                          <span className="font-medium">{lang.name}</span>
+   319→   319→                          <span className="ml-1.5 text-xs text-[var(--text-muted)]">
+   320→   320→                            {lang.nativeName}
+   321→   321→                          </span>
+   322→   322→                        </div>
+   323→   323→                        {isUpdatingLang === lang.code && (
+   324→   324→                          <Loader2 className="h-4 w-4 animate-spin" />
+   325→   325→                        )}
+   326→   326→                        {lang.code === profile?.nativeLanguage && isUpdatingLang !== lang.code && (
+   327→   327→                          <Check className="h-4 w-4" />
+   328→   328→                        )}
+   329→   329→                      </button>
+   330→   330→                    ))}
+   331→   331→                  </div>
+   332→   332→                </div>
+   333→   333→              )}
+   334→   334→
+   335→   335→              {/* ═══ Target language picker ═══ */}
+   336→   336→              {activePicker === "target" && (
+   337→   337→                <div className="relative z-50 mt-3 w-72 rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-2 shadow-[var(--shadow-lg)]">
+   338→   338→                  <p className="mb-2 px-3 text-[10px] font-medium tracking-wider text-[var(--text-muted)] uppercase">
+   339→   339→                    I want to learn (target language)
+   340→   340→                  </p>
+   341→   341→                  <div className="max-h-64 overflow-y-auto">
+   342→   342→                    {SUPPORTED_LANGUAGES.filter(
+   343→   343→                      (l) => l.code !== (profile?.nativeLanguage || "en")
+   344→   344→                    ).map((lang) => (
+   345→   345→                      <button
+   346→   346→                        key={lang.code}
+   347→   347→                        onClick={(e) => {
+   348→   348→                          e.stopPropagation();
+   349→   349→                          handleTargetLangChange(lang.code);
+   350→   350→                        }}
+   351→   351→                        disabled={!!isUpdatingLang}
+   352→   352→                        className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors hover:bg-[var(--bg-elevated)] disabled:opacity-50 ${
+   353→   353→                          lang.code === profile?.targetLanguage
+   354→   354→                            ? "bg-[var(--accent-light)] text-[var(--accent-primary)]"
+   355→   355→                            : "text-[var(--text-primary)]"
+   356→   356→                        }`}
+   357→   357→                      >
+   358→   358→                        <span className="text-xl">{lang.flagEmoji}</span>
+   359→   359→                        <div className="min-w-0 flex-1 text-left">
+   360→   360→                          <span className="font-medium">{lang.name}</span>
+   361→   361→                          <span className="ml-1.5 text-xs text-[var(--text-muted)]">
+   362→   362→                            {lang.nativeName}
+   363→   363→                          </span>
+   364→   364→                        </div>
+   365→   365→                        {isUpdatingLang === lang.code && (
+   366→   366→                          <Loader2 className="h-4 w-4 animate-spin" />
+   367→   367→                        )}
+   368→   368→                        {lang.code === profile?.targetLanguage && isUpdatingLang !== lang.code && (
+   369→   369→                          <Check className="h-4 w-4" />
+   370→   370→                        )}
+   371→   371→                      </button>
+   372→   372→                    ))}
+   373→   373→                  </div>
+   374→   374→                </div>
+   375→   375→              )}
+   376→   376→            </div>
+   377→   377→
+   378→   378→            {/* Change language button — opens target language picker */}
+   379→   379→            <div>
+   380→   380→              <button
+   381→   381→                onClick={(e) => {
+   382→   382→                  e.stopPropagation();
+   383→   383→                  setActivePicker(activePicker === "target" ? null : "target");
+   384→   384→                }}
+   385→   385→                disabled={!!isUpdatingLang}
+   386→   386→                className="flex items-center gap-1.5 rounded-xl bg-[var(--accent-primary)] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-[var(--accent-hover)] hover:shadow-md disabled:opacity-50"
+   387→   387→              >
+   388→   388→                {isUpdatingLang ? (
+   389→   389→                  <Loader2 className="h-4 w-4 animate-spin" />
+   390→   390→                ) : (
+   391→   391→                  <Globe className="h-4 w-4" />
+   392→   392→                )}
+   393→   393→                Change
+   394→   394→                <ChevronDown
+   395→   395→                  className={`h-3.5 w-3.5 transition-transform ${activePicker === "target" ? "rotate-180" : ""}`}
+   396→   396→                />
+   397→   397→              </button>
+   398→   398→            </div>
+   399→   399→          </div>
+   400→   400→
+   401→   401→          {/* Quick start bar */}
+   402→   402→          <div className="border-t border-[var(--border-default)]/50 bg-[var(--bg-surface)]/50 px-5 py-3 sm:px-6">
+   403→   403→            <Link
+   404→   404→              href="/learn"
+   405→   405→              className="flex items-center justify-between rounded-xl bg-[var(--accent-primary)] px-4 py-2.5 text-sm font-semibold text-white transition-all hover:bg-[var(--accent-hover)] hover:shadow-md"
+   406→   406→            >
+   407→   407→              <span className="flex items-center gap-2">
+   408→   408→                <Play className="h-4 w-4" />
+   409→   409→                Start {targetLang.name} Practice
+   410→   410→              </span>
+   411→   411→              <ArrowRight className="h-4 w-4" />
+   412→   412→            </Link>
+   413→   413→          </div>
+   414→   414→        </div>
+   415→   415→      </div>
+   416→   416→
+   417→   417→      {/* ═══ Upgrade Success Banner ═══ */}
+   418→   418→      {isUpgraded && (
+   419→   419→        <div className="mb-8 rounded-2xl border border-[var(--state-success)]/20 bg-[var(--state-success-light)] p-4">
+   420→   420→          <div className="flex items-center gap-3">
+   421→   421→            <CheckCircle2 className="h-6 w-6 shrink-0 text-[var(--state-success)]" />
+   422→   422→            <div>
+   423→   423→              <p className="text-sm font-semibold text-[var(--state-success)]">
+   424→   424→                Welcome to Pro! 🎉
+   425→   425→              </p>
+   426→   426→              <p className="text-xs text-[var(--state-success)]/80">
+   427→   427→                Your subscription is now active. Enjoy unlimited conversations and all premium features!
+   428→   428→              </p>
+   429→   429→            </div>
+   430→   430→          </div>
+   431→   431→        </div>
+   432→   432→      )}
+   433→   433→
+   434→   434→      {/* ═══ Upgrade CTA Banner (Free users) ═══ */}
+   435→   435→      {!profile?.isPro && (
+   436→   436→        <div className="mb-8">
+   437→   437→          <Link
+   438→   438→            href="/pricing"
+   439→   439→            className="gradient-conbolo group flex items-center justify-between rounded-2xl p-5 text-white transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg"
+   440→   440→          >
+   441→   441→            <div className="flex items-center gap-4">
+   442→   442→              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/20">
+   443→   443→                <Crown className="h-6 w-6" />
+   444→   444→              </div>
+   445→   445→              <div>
+   446→   446→                <h3
+   447→   447→                  className="font-semibold"
+   448→   448→                  style={{ fontFamily: "var(--font-heading-cfg)" }}
+   449→   449→                >
+   450→   450→                  Upgrade to Pro
+   451→   451→                </h3>
+   452→   452→                <p className="text-sm text-white/80">
+   453→   453→                  Unlimited conversations, premium scenarios & more
+   454→   454→                </p>
+   455→   455→              </div>
+   456→   456→            </div>
+   457→   457→            <div className="flex items-center gap-2 rounded-xl bg-white/20 px-4 py-2 text-sm font-semibold transition-colors hover:bg-white/30">
+   458→   458→              <Sparkles className="h-4 w-4" />
+   459→   459→              Upgrade Now
+   460→   460→              <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+   461→   461→            </div>
+   462→   462→          </Link>
+   463→   463→        </div>
+   464→   464→      )}
+   465→   465→
+   466→   466→      {/* ═══ Stats Grid ═══ */}
+   467→   467→      <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
+   468→   468→        {[
+   469→   469→          {
+   470→   470→            label: "Conversations",
+   471→   471→            value: String(stats.conversations),
+   472→   472→            icon: MessageSquare,
+   473→   473→            color: "text-[var(--accent-primary)]",
+   474→   474→            bg: "bg-[var(--accent-light)]",
+   475→   475→          },
+   476→   476→          {
+   477→   477→            label: "Words Learned",
+   478→   478→            value: String(stats.wordsLearned),
+   479→   479→            icon: BookOpen,
+   480→   480→            color: "text-[var(--state-success)]",
+   481→   481→            bg: "bg-green-50 dark:bg-green-900/20",
+   482→   482→          },
+   483→   483→          {
+   484→   484→            label: "Day Streak",
+   485→   485→            value: String(stats.dayStreak),
+   486→   486→            icon: Flame,
+   487→   487→            color: "text-[var(--color-gold)]",
+   488→   488→            bg: "bg-[var(--color-gold-light)]",
+   489→   489→          },
+   490→   490→          {
+   491→   491→            label: "XP Points",
+   492→   492→            value: String(stats.xpPoints),
+   493→   493→            icon: Zap,
+   494→   494→            color: "text-purple-500",
+   495→   495→            bg: "bg-purple-50 dark:bg-purple-900/20",
+   496→   496→          },
+   497→   497→        ].map((stat) => (
+   498→   498→          <div
+   499→   499→            key={stat.label}
+   500→   500→            className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-4 sm:p-5"
+   501→   501→          >
+   502→   502→            <div className="mb-3 flex items-center gap-3">
+   503→   503→              <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${stat.bg}`}>
+   504→   504→                <stat.icon className={`h-4.5 w-4.5 ${stat.color}`} />
+   505→   505→              </div>
+   506→   506→            </div>
+   507→   507→            <p
+   508→   508→              className="mb-0.5 text-2xl font-bold text-[var(--text-primary)] sm:text-3xl"
+   509→   509→              style={{ fontFamily: "var(--font-heading-cfg)" }}
+   510→   510→            >
+   511→   511→              {stat.value}
+   512→   512→            </p>
+   513→   513→            <p className="text-xs text-[var(--text-muted)] sm:text-sm">{stat.label}</p>
+   514→   514→          </div>
+   515→   515→        ))}
+   516→   516→      </div>
+   517→   517→
+   518→   518→      {/* ═══ Quick Actions ═══ */}
+   519→   519→      <div className="mb-8">
+   520→   520→        <h2
+   521→   521→          className="mb-4 text-lg font-semibold text-[var(--text-primary)]"
+   522→   522→          style={{ fontFamily: "var(--font-heading-cfg)" }}
+   523→   523→        >
+   524→   524→          Quick Start
+   525→   525→        </h2>
+   526→   526→        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+   527→   527→          <Link
+   528→   528→            href="/learn"
+   529→   529→            className="gradient-conbolo group relative rounded-2xl border-0 p-5 text-white transition-all duration-300 hover:-translate-y-0.5"
+   530→   530→          >
+   531→   531→            <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-white/20">
+   532→   532→              <MessageSquare className="h-5 w-5" />
+   533→   533→            </div>
+   534→   534→            <h3 className="mb-1 font-semibold" style={{ fontFamily: "var(--font-heading-cfg)" }}>
+   535→   535→              Free Chat
+   536→   536→            </h3>
+   537→   537→            <p className="text-sm text-white/70">Practice casual conversation on any topic</p>
+   538→   538→            <ArrowRight className="absolute top-5 right-5 h-4 w-4 text-white/60 transition-transform group-hover:translate-x-1" />
+   539→   539→          </Link>
+   540→   540→
+   541→   541→          <Link
+   542→   542→            href="/learn"
+   543→   543→            className="group rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5 transition-all duration-300 hover:-translate-y-0.5 hover:border-[var(--accent-primary)]/30"
+   544→   544→          >
+   545→   545→            <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--accent-light)]">
+   546→   546→              <Globe className="h-5 w-5 text-[var(--accent-primary)]" />
+   547→   547→            </div>
+   548→   548→            <h3
+   549→   549→              className="mb-1 font-semibold text-[var(--text-primary)]"
+   550→   550→              style={{ fontFamily: "var(--font-heading-cfg)" }}
+   551→   551→            >
+   552→   552→              {targetLang.name} Practice
+   553→   553→            </h3>
+   554→   554→            <p className="text-sm text-[var(--text-secondary)]">
+   555→   555→              Start a lesson in {targetLang.name}
+   556→   556→            </p>
+   557→   557→            <ArrowRight className="absolute top-5 right-5 h-4 w-4 text-[var(--text-muted)] transition-transform group-hover:translate-x-1" />
+   558→   558→          </Link>
+   559→   559→
+   560→   560→          <Link
+   561→   561→            href="/vocabulary"
+   562→   562→            className="group rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5 transition-all duration-300 hover:-translate-y-0.5 hover:border-[var(--accent-primary)]/30"
+   563→   563→          >
+   564→   564→            <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-green-50 dark:bg-green-900/20">
+   565→   565→              <BookOpen className="h-5 w-5 text-[var(--state-success)]" />
+   566→   566→            </div>
+   567→   567→            <h3
+   568→   568→              className="mb-1 font-semibold text-[var(--text-primary)]"
+   569→   569→              style={{ fontFamily: "var(--font-heading-cfg)" }}
+   570→   570→            >
+   571→   571→              Review Words
+   572→   572→            </h3>
+   573→   573→            <p className="text-sm text-[var(--text-secondary)]">
+   574→   574→              Practice vocabulary with spaced repetition
+   575→   575→            </p>
+   576→   576→            <ArrowRight className="absolute top-5 right-5 h-4 w-4 text-[var(--text-muted)] transition-transform group-hover:translate-x-1" />
+   577→   577→          </Link>
+   578→   578→        </div>
+   579→   579→      </div>
+   580→   580→
+   581→   581→      {/* ═══ Recent Conversations ═══ */}
+   582→   582→      {conversations.length > 0 && (
+   583→   583→        <div className="mb-8">
+   584→   584→          <div className="mb-4 flex items-center justify-between">
+   585→   585→            <h2
+   586→   586→              className="text-lg font-semibold text-[var(--text-primary)]"
+   587→   587→              style={{ fontFamily: "var(--font-heading-cfg)" }}
+   588→   588→            >
+   589→   589→              Recent Conversations
+   590→   590→            </h2>
+   591→   591→            <Link
+   592→   592→              href="/learn"
+   593→   593→              className="text-sm font-medium text-[var(--accent-primary)] hover:text-[var(--accent-hover)]"
+   594→   594→            >
+   595→   595→              View all
+   596→   596→            </Link>
+   597→   597→          </div>
+   598→   598→          <div className="space-y-3">
+   599→   599→            {conversations.map((conv) => {
+   600→   600→              const [, tCode] = conv.languagePair.split("-");
+   601→   601→              const tLang = getLangInfo(tCode);
+   602→   602→              return (
+   603→   603→                <Link
+   604→   604→                  key={conv.id}
+   605→   605→                  href={`/learn/${conv.id}`}
+   606→   606→                  className="flex items-center gap-3 rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-4 transition-colors hover:border-[var(--accent-primary)]/30"
+   607→   607→                >
+   608→   608→                  <span className="text-xl">{tLang.flagEmoji}</span>
+   609→   609→                  <div className="min-w-0 flex-1">
+   610→   610→                    <p className="truncate text-sm font-medium text-[var(--text-primary)]">
+   611→   611→                      {conv.scenario?.title || `${tLang.name} Conversation`}
+   612→   612→                    </p>
+   613→   613→                    <p className="text-xs text-[var(--text-muted)]">
+   614→   614→                      {conv.messageCount} messages · {new Date(conv.startedAt).toLocaleDateString()}
+   615→   615→                    </p>
+   616→   616→                  </div>
+   617→   617→                  <ArrowRight className="h-4 w-4 text-[var(--text-muted)]" />
+   618→   618→                </Link>
+   619→   619→              );
+   620→   620→            })}
+   621→   621→          </div>
+   622→   622→        </div>
+   623→   623→      )}
+   624→   624→
+   625→   625→      {/* ═══ Achievements ═══ */}
+   626→   626→      <div>
+   627→   627→        <div className="mb-4 flex items-center justify-between">
+   628→   628→          <h2
+   629→   629→            className="text-lg font-semibold text-[var(--text-primary)]"
+   630→   630→            style={{ fontFamily: "var(--font-heading-cfg)" }}
+   631→   631→          >
+   632→   632→            Achievements
+   633→   633→          </h2>
+   634→   634→          <Link
+   635→   635→            href="/progress"
+   636→   636→            className="text-sm font-medium text-[var(--accent-primary)] hover:text-[var(--accent-hover)]"
+   637→   637→          >
+   638→   638→            View all
+   639→   639→          </Link>
+   640→   640→        </div>
+   641→   641→
+   642→   642→        {achievements.length === 0 ? (
+   643→   643→          /* Empty state — still loading or no data */
+   644→   644→          <div className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-6 text-center">
+   645→   645→            <Trophy className="mx-auto mb-3 h-10 w-10 text-[var(--text-muted)]" />
+   646→   646→            <h3
+   647→   647→              className="mb-1 text-sm font-semibold text-[var(--text-primary)]"
+   648→   648→              style={{ fontFamily: "var(--font-heading-cfg)" }}
+   649→   649→            >
+   650→   650→              No achievements yet
+   651→   651→            </h3>
+   652→   652→            <p className="text-xs text-[var(--text-muted)]">
+   653→   653→              Start your first conversation to unlock your first achievement!
+   654→   654→            </p>
+   655→   655→          </div>
+   656→   656→        ) : (
+   657→   657→          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+   658→   658→            {achievements.map((ach) => (
+   659→   659→              <div
+   660→   660→                key={ach.id}
+   661→   661→                className={`group rounded-2xl border p-4 text-center transition-all duration-300 hover:-translate-y-0.5 ${
+   662→   662→                  ach.unlocked
+   663→   663→                    ? "border-[var(--color-gold)]/30 bg-gradient-to-br from-[var(--color-gold-light)]/50 to-[var(--bg-surface)] hover:border-[var(--color-gold)]/50 hover:shadow-[var(--shadow-md)]"
+   664→   664→                    : "border-[var(--border-default)] bg-[var(--bg-surface)] opacity-60 hover:opacity-80"
+   665→   665→                }`}
+   666→   666→              >
+   667→   667→                <div className="mb-2 text-3xl">
+   668→   668→                  {ach.unlocked ? (
+   669→   669→                    ach.icon
+   670→   670→                  ) : (
+   671→   671→                    <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-[var(--bg-elevated)]">
+   672→   672→                      <Lock className="h-4 w-4 text-[var(--text-muted)]" />
+   673→   673→                    </div>
+   674→   674→                  )}
+   675→   675→                </div>
+   676→   676→                <h3
+   677→   677→                  className={`mb-0.5 text-xs font-semibold leading-tight ${
+   678→   678→                    ach.unlocked ? "text-[var(--text-primary)]" : "text-[var(--text-muted)]"
+   679→   679→                  }`}
+   680→   680→                  style={{ fontFamily: "var(--font-heading-cfg)" }}
+   681→   681→                >
+   682→   682→                  {ach.title}
+   683→   683→                </h3>
+   684→   684→                <p className="text-[10px] leading-snug text-[var(--text-secondary)]">
+   685→   685→                  {ach.description}
+   686→   686→                </p>
+   687→   687→              </div>
+   688→   688→            ))}
+   689→   689→          </div>
+   690→   690→        )}
+   691→   691→      </div>
+   692→   692→    </div>
+   693→   693→  );
+   694→   694→}
+   695→   695→
+   696→   696→// Wrap with Suspense for useSearchParams() compatibility
+   697→   697→export default function DashboardPage() {
+   698→   698→  return (
+   699→   699→    <Suspense
+   700→   700→      fallback={
+   701→   701→        <div className="flex min-h-[50vh] items-center justify-center">
+   702→   702→          <Loader2 className="h-8 w-8 animate-spin text-[var(--accent-primary)]" />
+   703→   703→        </div>
+   704→   704→      }
+   705→   705→    >
+   706→   706→      <DashboardPageContent />
+   707→   707→    </Suspense>
+   708→   708→  );
+   709→   709→}
+   710→   710→
