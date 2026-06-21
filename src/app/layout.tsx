@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Plus_Jakarta_Sans, Inter, JetBrains_Mono } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 import { AuthProvider } from "@/components/auth/auth-provider";
@@ -26,16 +26,21 @@ const jetbrainsMono = JetBrains_Mono({
   display: "swap",
 });
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#0b0b1a" },
+  ],
+};
+
 export const metadata: Metadata = {
   title: "Convolo — Conversation, Unlocked.",
   description:
     "Master any language through real conversations with AI. Practice speaking, get instant corrections, and build fluency naturally with Convolo.",
-  viewport: {
-    width: "device-width",
-    initialScale: 1,
-    maximumScale: 1,
-    viewportFit: "cover",
-  },
   keywords: [
     "Convolo",
     "language learning",
@@ -70,9 +75,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning className="overflow-x-hidden">
       <body
-        className={`${plusJakartaSans.variable} ${inter.variable} ${jetbrainsMono.variable} bg-background text-foreground antialiased`}
+        className={`${plusJakartaSans.variable} ${inter.variable} ${jetbrainsMono.variable} overflow-x-hidden bg-background text-foreground antialiased`}
       >
         <AuthProvider>
           <ThemeProvider

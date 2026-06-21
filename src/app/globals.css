@@ -146,6 +146,11 @@
   body {
     @apply bg-background text-foreground;
   }
+  /* Prevent horizontal overflow on mobile */
+  html, body {
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
 }
 
 /* ===== Gradient Utilities ===== */
@@ -173,6 +178,8 @@
   position: relative;
   background: var(--bg-surface);
   border-radius: 16px;
+  overflow: hidden;
+  isolation: isolate;
 }
 .gradient-border::before {
   content: "";

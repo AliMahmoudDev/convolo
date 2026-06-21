@@ -12,45 +12,71 @@
  *
  * Features:
  * 1. Language pair display (read-only from profile store)
- * 2. Free Chat + Scenario cards
- * 3. Start conversation → POST /api/conversations → redirect to /learn/[id]
+ * 2. Free Chat + Scenario cards (fetched from API)
+ * 3. Category filter tabs
+ * 4. Start conversation → POST /api/conversations → redirect to /learn/[id]
  */
 
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { MessageSquare, ArrowRight, Sparkles, Loader2, AlertCircle, Settings2 } from "lucide-react";
+import {
+  MessageSquare,
+  ArrowRight,
+  Sparkles,
+  Loader2,
+  AlertCircle,
+  Settings2,
+  Crown,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SUPPORTED_LANGUAGES, type ProficiencyLevel } from "@/lib/constants";
 import { useProfileStore, useTargetLanguage, useNativeLanguage } from "@/stores/profile-store";
 
 // ═══════════════════════════════════════════
-// Hardcoded scenarios
+// Types
 // ═══════════════════════════════════════════
 
-const scenarios = [
+interface Scenario {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  difficultyLevel: string;
+  languagePair?: string;
+  targetLanguage?: string;
+  openingLine: string;
+  isPremium: boolean;
+  isLocked?: boolean;
+}
+
+// ═══════════════════════════════════════════
+// Fallback hardcoded scenarios
+// ═══════════════════════════════════════════
+
+const FALLBACK_SCENARIOS: Scenario[] = [
   {
     id: "1",
     title: "Ordering at a Restaurant",
     description:
       "Practice ordering food and drinks at a restaurant, asking about menu items, and handling the bill.",
     category: "daily",
-    difficulty: "beginner" as const,
-    targetLanguage: "ar" as const,
+    difficultyLevel: "beginner",
+    targetLanguage: "ar",
     openingLine: "أهلاً وسهلاً! تفضل بالجلوس. ماذا تريد أن تطلب؟",
-    premium: false,
+    isPremium: false,
   },
   {
     id: "2",
     title: "At the Airport",
     description: "Navigate check-in, security, and boarding at an airport in your target language.",
     category: "travel",
-    difficulty: "beginner" as const,
-    targetLanguage: "ar" as const,
+    difficultyLevel: "beginner",
+    targetLanguage: "ar",
     openingLine: "مرحباً! يمكنني مساعدتك؟ هل أنت جاهز لتسجيل الدخول؟",
-    premium: false,
+    isPremium: false,
   },
   {
     id: "3",
@@ -58,10 +84,10 @@ const scenarios = [
     description:
       "Casual conversation at a coffee shop with a friend. Practice everyday small talk.",
     category: "social",
-    difficulty: "beginner" as const,
-    targetLanguage: "es" as const,
+    difficultyLevel: "beginner",
+    targetLanguage: "es",
     openingLine: "¡Hola! ¿Qué tal? ¿Qué te pido?",
-    premium: false,
+    isPremium: false,
   },
   {
     id: "4",
@@ -69,32 +95,47 @@ const scenarios = [
     description:
       "Check into a hotel, ask about amenities, and resolve a minor issue with your room.",
     category: "travel",
-    difficulty: "beginner" as const,
-    targetLanguage: "fr" as const,
+    difficultyLevel: "beginner",
+    targetLanguage: "fr",
     openingLine: "Bonsoir! Bienvenue à notre hôtel.",
-    premium: false,
+    isPremium: false,
   },
   {
     id: "5",
     title: "Business Meeting",
     description: "Introduce yourself and your company in a professional business meeting.",
     category: "business",
-    difficulty: "intermediate" as const,
-    targetLanguage: "ar" as const,
+    difficultyLevel: "intermediate",
+    targetLanguage: "ar",
     openingLine: "السلام عليكم، تشرفنا بمعرفتك.",
-    premium: true,
+    isPremium: true,
   },
   {
     id: "6",
     title: "Doctor Visit",
     description: "Describe your symptoms to a doctor and understand medical instructions.",
     category: "medical",
-    difficulty: "intermediate" as const,
-    targetLanguage: "ar" as const,
+    difficultyLevel: "intermediate",
+    targetLanguage: "ar",
     openingLine: "مرحباً، ما الذي يجلبك اليوم؟",
-    premium: true,
+    isPremium: true,
   },
 ];
+
+// ═══════════════════════════════════════════
+// Category definitions
+// ═══════════════════════════════════════════
+
+const CATEGORIES = [
+  { id: "all", label: "All" },
+  { id: "daily", label: "Daily" },
+  { id: "travel", label: "Travel" },
+  { id: "social", label: "Social" },
+  { id: "business", label: "Business" },
+  { id: "medical", label: "Medical" },
+] as const;
+
+type CategoryId = (typeof CATEGORIES)[number]["id"];
 
 // ═══════════════════════════════════════════
 // Main Component
@@ -115,6 +156,11 @@ export default function LearnPage() {
   const targetLangCode = profile?.targetLanguage || "ar";
   const difficulty: ProficiencyLevel = profile?.proficiencyLevel || "beginner";
 
+  // Scenario + filter state
+  const [scenarios, setScenarios] = useState<Scenario[]>(FALLBACK_SCENARIOS);
+  const [activeCategory, setActiveCategory] = useState<CategoryId>("all");
+  const [isLoadingScenarios, setIsLoadingScenarios] = useState(true);
+
   // Loading + error states
   const [isStarting, setIsStarting] = useState(false);
   const [startingScenarioId, setStartingScenarioId] = useState<string | null>(null);
@@ -127,14 +173,67 @@ export default function LearnPage() {
     }
   }, [isProfileInitialized, fetchProfile]);
 
+  // ─── Fetch scenarios from API ───
+  useEffect(() => {
+    async function fetchScenarios() {
+      setIsLoadingScenarios(true);
+      try {
+        const res = await fetch("/api/scenarios");
+        const data = await res.json();
+
+        if (data.success && data.data?.scenarios && data.data.scenarios.length > 0) {
+          // Map API response fields to our Scenario interface
+          const mapped: Scenario[] = data.data.scenarios.map(
+            (s: {
+              id: string;
+              title: string;
+              description: string;
+              category: string;
+              difficultyLevel: string;
+              languagePair?: string;
+              openingLine: string;
+              isPremium: boolean;
+              isLocked?: boolean;
+            }) => ({
+              id: s.id,
+              title: s.title,
+              description: s.description,
+              category: s.category,
+              difficultyLevel: s.difficultyLevel,
+              languagePair: s.languagePair,
+              targetLanguage: s.languagePair?.split("-")[1] || targetLangCode,
+              openingLine: s.openingLine,
+              isPremium: s.isPremium,
+              isLocked: s.isLocked,
+            })
+          );
+          setScenarios(mapped);
+        }
+        // If API returns empty or fails, keep FALLBACK_SCENARIOS (already set as initial state)
+      } catch {
+        // Keep fallback scenarios on error
+      } finally {
+        setIsLoadingScenarios(false);
+      }
+    }
+    fetchScenarios();
+  }, [targetLangCode]);
+
+  // ─── Filtered scenarios by category ───
+  const filteredScenarios = useMemo(() => {
+    if (activeCategory === "all") return scenarios;
+    return scenarios.filter((s) => s.category === activeCategory);
+  }, [scenarios, activeCategory]);
+
   // ─── Start a conversation ───
   const startConversation = async (
     scenarioTargetLang?: string,
-    scenarioDifficulty?: ProficiencyLevel
+    scenarioDifficulty?: ProficiencyLevel,
+    scenarioId?: string
   ) => {
     setIsStarting(true);
     setError(null);
-    setStartingScenarioId(scenarioTargetLang || "free");
+    setStartingScenarioId(scenarioId || scenarioTargetLang || "free");
 
     const effectiveTarget = scenarioTargetLang || targetLangCode;
     const effectiveDifficulty = scenarioDifficulty || difficulty;
@@ -147,6 +246,7 @@ export default function LearnPage() {
         body: JSON.stringify({
           languagePair,
           difficultyLevel: effectiveDifficulty,
+          scenarioId: scenarioId || undefined,
         }),
       });
 
@@ -199,28 +299,28 @@ export default function LearnPage() {
 
       {/* ═══ Language bar — DISPLAY ONLY ═══ */}
       <div className="mb-6 overflow-hidden rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)]">
-        <div className="flex items-center justify-between p-4">
-          {/* Language pair + level — read-only badges */}
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Native language badge */}
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--bg-elevated)] px-3 py-1.5 text-sm font-medium text-[var(--text-primary)]">
-              <span className="text-base">{nativeLang.flagEmoji}</span>
-              {nativeLang.name}
-            </span>
+        <div className="flex flex-wrap items-center gap-2 p-4 sm:gap-3">
+          {/* Native language badge */}
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--bg-elevated)] px-3 py-1.5 text-sm font-medium text-[var(--text-primary)]">
+            <span className="text-base">{nativeLang.flagEmoji}</span>
+            {nativeLang.name}
+          </span>
 
-            <span className="text-[var(--text-muted)]">&rarr;</span>
+          <span className="text-[var(--text-muted)]">&rarr;</span>
 
-            {/* Target language badge */}
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--accent-light)] px-3 py-1.5 text-sm font-medium text-[var(--accent-primary)]">
-              <span className="text-base">{targetLang.flagEmoji}</span>
-              {targetLang.name}
-            </span>
+          {/* Target language badge */}
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--accent-light)] px-3 py-1.5 text-sm font-medium text-[var(--accent-primary)]">
+            <span className="text-base">{targetLang.flagEmoji}</span>
+            {targetLang.name}
+          </span>
 
-            {/* Level badge */}
-            <span className="inline-flex items-center rounded-full bg-[var(--bg-elevated)] px-3 py-1.5 text-sm text-[var(--text-secondary)] capitalize">
-              {difficulty}
-            </span>
-          </div>
+          {/* Level badge */}
+          <span className="inline-flex items-center rounded-full bg-[var(--bg-elevated)] px-3 py-1.5 text-sm text-[var(--text-secondary)] capitalize">
+            {difficulty}
+          </span>
+
+          {/* Spacer to push Change button to end on wrapped rows */}
+          <div className="flex-1" />
 
           {/* Change link → goes to Dashboard */}
           <Link
@@ -270,73 +370,141 @@ export default function LearnPage() {
         </div>
       </div>
 
-      {/* Scenario Grid */}
-      <h2
-        className="mb-4 text-lg font-semibold text-[var(--text-primary)]"
-        style={{ fontFamily: "var(--font-heading-cfg)" }}
-      >
-        Conversation Scenarios
-      </h2>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {scenarios.map((scenario) => {
-          const isPremium = scenario.premium && !profile?.isPro;
-          const isStartingThis = isStarting && startingScenarioId === scenario.targetLanguage;
+      {/* ═══ Category Filter Tabs ═══ */}
+      <div className="mb-6">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 custom-scrollbar">
+          {CATEGORIES.map((cat) => (
+            <button
+              key={cat.id}
+              onClick={() => setActiveCategory(cat.id)}
+              className={`shrink-0 rounded-full px-4 py-1.5 text-sm font-medium transition-all duration-200 ${
+                activeCategory === cat.id
+                  ? "bg-[var(--accent-primary)] text-white shadow-sm"
+                  : "bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--accent-primary)]"
+              }`}
+            >
+              {cat.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
-          return (
+      {/* ═══ Scenario Grid ═══ */}
+      <div className="mb-4 flex items-center justify-between">
+        <h2
+          className="text-lg font-semibold text-[var(--text-primary)]"
+          style={{ fontFamily: "var(--font-heading-cfg)" }}
+        >
+          Conversation Scenarios
+        </h2>
+        {!isLoadingScenarios && (
+          <span className="text-xs text-[var(--text-muted)]">
+            {filteredScenarios.length} {filteredScenarios.length === 1 ? "scenario" : "scenarios"}
+          </span>
+        )}
+      </div>
+
+      {isLoadingScenarios ? (
+        /* Loading skeleton for scenario cards */
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => (
             <div
-              key={scenario.id}
-              className="group rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5 transition-all duration-300 hover:-translate-y-0.5 hover:border-[var(--accent-primary)]/30 hover:shadow-[var(--shadow-md)]"
+              key={i}
+              className="animate-pulse rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5"
             >
               <div className="mb-3 flex items-center gap-2">
-                <span className="inline-flex items-center rounded-full bg-[var(--accent-light)] px-2.5 py-0.5 text-[10px] font-medium text-[var(--accent-primary)]">
-                  {scenario.category.charAt(0).toUpperCase() + scenario.category.slice(1)}
-                </span>
-                <span className="inline-flex items-center rounded-full bg-[var(--bg-elevated)] px-2.5 py-0.5 text-[10px] font-medium text-[var(--text-secondary)]">
-                  {scenario.difficulty.charAt(0).toUpperCase() + scenario.difficulty.slice(1)}
-                </span>
-                {scenario.premium && (
-                  <span className="inline-flex items-center rounded-full bg-[var(--color-gold-light)] px-2.5 py-0.5 text-[10px] font-medium text-[var(--color-gold)]">
-                    Pro
-                  </span>
-                )}
+                <div className="h-5 w-14 rounded-full bg-[var(--bg-elevated)]" />
+                <div className="h-5 w-20 rounded-full bg-[var(--bg-elevated)]" />
               </div>
-              <h3
-                className="mb-2 text-base font-semibold text-[var(--text-primary)]"
-                style={{ fontFamily: "var(--font-heading-cfg)" }}
-              >
-                {scenario.title}
-              </h3>
-              <p className="mb-4 text-xs leading-relaxed text-[var(--text-secondary)]">
-                {scenario.description}
-              </p>
-              <div className="mb-3 text-xs text-[var(--text-muted)] italic">
-                &ldquo;{scenario.openingLine}&rdquo;
-              </div>
-              <Button
-                size="sm"
-                onClick={() =>
-                  isPremium
-                    ? router.push("/pricing")
-                    : startConversation(scenario.targetLanguage, scenario.difficulty)
-                }
-                disabled={isStartingThis}
-                className={`h-9 w-full rounded-lg text-xs ${
-                  isPremium
-                    ? "border border-[var(--accent-primary)]/30 bg-transparent text-[var(--accent-primary)] hover:bg-[var(--accent-light)]"
-                    : "gradient-conbolo border-0 text-white hover:opacity-90"
-                }`}
-              >
-                {isStartingThis ? (
-                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <ArrowRight className="ml-1 h-3.5 w-3.5" />
-                )}
-                {isPremium ? "Upgrade to Pro" : "Start Conversation"}
-              </Button>
+              <div className="mb-2 h-4 w-3/4 rounded bg-[var(--bg-elevated)]" />
+              <div className="mb-4 h-3 w-full rounded bg-[var(--bg-elevated)]" />
+              <div className="h-8 w-full rounded-lg bg-[var(--bg-elevated)]" />
             </div>
-          );
-        })}
-      </div>
+          ))}
+        </div>
+      ) : filteredScenarios.length === 0 ? (
+        /* Empty state for category filter */
+        <div className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-8 text-center">
+          <MessageSquare className="mx-auto mb-3 h-10 w-10 text-[var(--text-muted)]" />
+          <h3
+            className="mb-1 text-sm font-semibold text-[var(--text-primary)]"
+            style={{ fontFamily: "var(--font-heading-cfg)" }}
+          >
+            No scenarios in this category
+          </h3>
+          <p className="text-xs text-[var(--text-muted)]">
+            Try selecting a different category or start a free chat instead.
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {filteredScenarios.map((scenario) => {
+            const isPremium = (scenario.isPremium || scenario.isLocked) && !profile?.isPro;
+            const isStartingThis = isStarting && startingScenarioId === scenario.id;
+
+            return (
+              <div
+                key={scenario.id}
+                className="group rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5 transition-all duration-300 hover:-translate-y-0.5 hover:border-[var(--accent-primary)]/30 hover:shadow-[var(--shadow-md)]"
+              >
+                <div className="mb-3 flex items-center gap-2">
+                  <span className="inline-flex items-center rounded-full bg-[var(--accent-light)] px-2.5 py-0.5 text-[10px] font-medium text-[var(--accent-primary)]">
+                    {scenario.category.charAt(0).toUpperCase() + scenario.category.slice(1)}
+                  </span>
+                  <span className="inline-flex items-center rounded-full bg-[var(--bg-elevated)] px-2.5 py-0.5 text-[10px] font-medium text-[var(--text-secondary)]">
+                    {scenario.difficultyLevel.charAt(0).toUpperCase() + scenario.difficultyLevel.slice(1)}
+                  </span>
+                  {(scenario.isPremium || scenario.isLocked) && (
+                    <span className="inline-flex items-center gap-0.5 rounded-full bg-[var(--color-gold-light)] px-2.5 py-0.5 text-[10px] font-medium text-[var(--color-gold)]">
+                      <Crown className="h-2.5 w-2.5" />
+                      Pro
+                    </span>
+                  )}
+                </div>
+                <h3
+                  className="mb-2 text-base font-semibold text-[var(--text-primary)]"
+                  style={{ fontFamily: "var(--font-heading-cfg)" }}
+                >
+                  {scenario.title}
+                </h3>
+                <p className="mb-4 text-xs leading-relaxed text-[var(--text-secondary)]">
+                  {scenario.description}
+                </p>
+                {scenario.openingLine && (
+                  <div className="mb-3 text-xs text-[var(--text-muted)] italic">
+                    &ldquo;{scenario.openingLine}&rdquo;
+                  </div>
+                )}
+                <Button
+                  size="sm"
+                  onClick={() =>
+                    isPremium
+                      ? router.push("/pricing")
+                      : startConversation(
+                          scenario.targetLanguage,
+                          scenario.difficultyLevel as ProficiencyLevel,
+                          scenario.id
+                        )
+                  }
+                  disabled={isStartingThis}
+                  className={`h-9 w-full rounded-lg text-xs ${
+                    isPremium
+                      ? "border border-[var(--accent-primary)]/30 bg-transparent text-[var(--accent-primary)] hover:bg-[var(--accent-light)]"
+                      : "gradient-conbolo border-0 text-white hover:opacity-90"
+                  }`}
+                >
+                  {isStartingThis ? (
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <ArrowRight className="ml-1 h-3.5 w-3.5" />
+                  )}
+                  {isPremium ? "Upgrade to Pro" : "Start Conversation"}
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

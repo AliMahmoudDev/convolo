@@ -29,6 +29,7 @@ import {
   MessageSquare,
   BookOpen,
   ExternalLink,
+  Settings,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -146,6 +147,28 @@ export default function ProfilePage() {
   const isProfileInitialized = useProfileStore((s) => s.isInitialized);
   const targetLang = useTargetLanguage();
   const nativeLang = useNativeLanguage();
+
+  // Stripe customer portal state
+  const [isManagingSubscription, setIsManagingSubscription] = useState(false);
+
+  // ─── Open Stripe Customer Portal ───
+  const handleManageSubscription = useCallback(async () => {
+    if (isManagingSubscription) return;
+    setIsManagingSubscription(true);
+    try {
+      const res = await fetch("/api/stripe/portal", { method: "POST" });
+      const data = await res.json();
+      if (data.success && data.data?.url) {
+        window.location.href = data.data.url;
+      } else {
+        console.error("[Profile] Failed to open portal:", data.error?.message);
+      }
+    } catch {
+      console.error("[Profile] Failed to open portal");
+    } finally {
+      setIsManagingSubscription(false);
+    }
+  }, [isManagingSubscription]);
 
   // ─── Fetch profile on mount ───
   useEffect(() => {
@@ -318,7 +341,7 @@ export default function ProfilePage() {
                 : "3 conversations per day, basic scenarios"}
             </p>
           </div>
-          {!profile.isPro && (
+          {!profile.isPro ? (
             <Link href="/pricing">
               <Button
                 size="sm"
@@ -328,6 +351,21 @@ export default function ProfilePage() {
                 Upgrade
               </Button>
             </Link>
+          ) : (
+            <Button
+              size="sm"
+              onClick={handleManageSubscription}
+              disabled={isManagingSubscription}
+              variant="outline"
+              className="h-8 rounded-lg px-4 text-xs"
+            >
+              {isManagingSubscription ? (
+                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Settings className="mr-1 h-3.5 w-3.5" />
+              )}
+              Manage
+            </Button>
           )}
         </div>
       </div>

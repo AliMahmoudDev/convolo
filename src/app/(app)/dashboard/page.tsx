@@ -17,9 +17,9 @@
 
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   MessageSquare,
   BookOpen,
@@ -33,6 +33,9 @@ import {
   Play,
   Trophy,
   Loader2,
+  Lock,
+  Sparkles,
+  CheckCircle2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SUPPORTED_LANGUAGES, type ProficiencyLevel } from "@/lib/constants";
@@ -58,6 +61,14 @@ interface UserStats {
   xpPoints: number;
 }
 
+interface Achievement {
+  id: string;
+  title: string;
+  description: string;
+  icon: string;
+  unlocked: boolean;
+}
+
 // ═══════════════════════════════════════════
 // Helper
 // ═══════════════════════════════════════════
@@ -77,8 +88,10 @@ function getLangInfo(code: string) {
 // Component
 // ═══════════════════════════════════════════
 
-export default function DashboardPage() {
+function DashboardPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const isUpgraded = searchParams.get("upgraded") === "true";
 
   // Profile from shared store
   const profile = useProfileStore((s) => s.profile);
@@ -95,6 +108,7 @@ export default function DashboardPage() {
     dayStreak: 0,
     xpPoints: 0,
   });
+  const [achievements, setAchievements] = useState<Achievement[]>([]);
   const [isPageLoading, setIsPageLoading] = useState(true);
   const [activePicker, setActivePicker] = useState<"native" | "target" | null>(null);
   const [isUpdatingLang, setIsUpdatingLang] = useState<string | null>(null);
@@ -129,10 +143,11 @@ export default function DashboardPage() {
   useEffect(() => {
     async function fetchData() {
       try {
-        const [_, convRes, statsRes] = await Promise.all([
+        const [_, convRes, statsRes, achRes] = await Promise.all([
           fetchProfile(),
           fetch("/api/conversations"),
           fetch("/api/user/stats"),
+          fetch("/api/achievements"),
         ]);
 
         const convData = await convRes.json();
@@ -143,6 +158,11 @@ export default function DashboardPage() {
         const statsData = await statsRes.json();
         if (statsData.success && statsData.data) {
           setStats(statsData.data);
+        }
+
+        const achData = await achRes.json();
+        if (achData.success && achData.data?.achievements) {
+          setAchievements(achData.data.achievements);
         }
       } catch {
         // Silently fail
@@ -213,157 +233,160 @@ export default function DashboardPage() {
       {/* ═══ Language Card (Duolingo-style) ═══ */}
       <div className="mb-8">
         <div className="overflow-hidden rounded-2xl border border-[var(--border-default)] bg-gradient-to-br from-[var(--bg-surface)] to-[var(--accent-light)]/30">
-          {/* Main language display */}
-          <div className="flex items-center gap-4 p-5 sm:p-6">
-            {/* Big flag emoji — like Duolingo's course icon */}
-            <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl bg-[var(--accent-light)] text-4xl shadow-sm sm:h-24 sm:w-24 sm:text-5xl">
-              {targetLang.flagEmoji}
-            </div>
-
-            {/* Language info + pickers (wrapped in ref for click-outside) */}
-            <div className="min-w-0 flex-1" ref={pickerRef}>
-              <p className="text-xs font-medium tracking-wider text-[var(--text-muted)] uppercase">
-                I&apos;m learning
-              </p>
-              <h2
-                className="text-2xl font-bold text-[var(--text-primary)] sm:text-3xl"
-                style={{ fontFamily: "var(--font-heading-cfg)" }}
-              >
-                {targetLang.name}
-              </h2>
-              <p className="mt-0.5 text-sm text-[var(--text-secondary)]">{targetLang.nativeName}</p>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                {/* Native language — clickable to change */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setActivePicker(activePicker === "native" ? null : "native");
-                  }}
-                  className="inline-flex items-center gap-1 rounded-full bg-[var(--bg-elevated)] px-2.5 py-1 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--accent-light)] hover:text-[var(--accent-primary)]"
-                >
-                  {nativeLang.flagEmoji} {nativeLang.name}
-                  <ChevronDown
-                    className={`h-3 w-3 transition-transform ${activePicker === "native" ? "rotate-180" : ""}`}
-                  />
-                </button>
-                <span className="text-[var(--text-muted)]">→</span>
-                {/* Target language — clickable to change */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setActivePicker(activePicker === "target" ? null : "target");
-                  }}
-                  className="inline-flex items-center gap-1 rounded-full bg-[var(--accent-light)] px-2.5 py-1 text-xs font-medium text-[var(--accent-primary)] transition-colors hover:bg-[var(--accent-primary)] hover:text-white"
-                >
-                  {targetLang.flagEmoji} {targetLang.name}
-                  <ChevronDown
-                    className={`h-3 w-3 transition-transform ${activePicker === "target" ? "rotate-180" : ""}`}
-                  />
-                </button>
-                <span className="inline-flex items-center rounded-full bg-[var(--bg-elevated)] px-2.5 py-1 text-xs text-[var(--text-secondary)] capitalize">
-                  {level}
-                </span>
-                {profile?.isPro && (
-                  <span className="inline-flex items-center gap-0.5 rounded-full bg-[var(--color-gold-light)] px-2.5 py-1 text-xs font-medium text-[var(--color-gold)]">
-                    <Crown className="h-3 w-3" /> Pro
-                  </span>
-                )}
+          {/* Main language display — stacks on mobile, row on desktop */}
+          <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:gap-4 sm:p-6">
+            {/* Top row on mobile: flag + info */}
+            <div className="flex items-center gap-4">
+              {/* Big flag emoji — like Duolingo's course icon */}
+              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-[var(--accent-light)] text-3xl shadow-sm sm:h-24 sm:w-24 sm:text-5xl">
+                {targetLang.flagEmoji}
               </div>
 
-              {/* ═══ Native language picker ═══ */}
-              {activePicker === "native" && (
-                <div className="relative z-50 mt-3 w-72 rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-2 shadow-[var(--shadow-lg)]">
-                  <p className="mb-2 px-3 text-[10px] font-medium tracking-wider text-[var(--text-muted)] uppercase">
-                    I speak (native language)
-                  </p>
-                  <div className="max-h-64 overflow-y-auto">
-                    {SUPPORTED_LANGUAGES.filter(
-                      (l) => l.code !== (profile?.targetLanguage || "ar")
-                    ).map((lang) => (
-                      <button
-                        key={lang.code}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleNativeLangChange(lang.code);
-                        }}
-                        disabled={!!isUpdatingLang}
-                        className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors hover:bg-[var(--bg-elevated)] disabled:opacity-50 ${
-                          lang.code === profile?.nativeLanguage
-                            ? "bg-[var(--accent-light)] text-[var(--accent-primary)]"
-                            : "text-[var(--text-primary)]"
-                        }`}
-                      >
-                        <span className="text-xl">{lang.flagEmoji}</span>
-                        <div className="min-w-0 flex-1 text-left">
-                          <span className="font-medium">{lang.name}</span>
-                          <span className="ml-1.5 text-xs text-[var(--text-muted)]">
-                            {lang.nativeName}
-                          </span>
-                        </div>
-                        {isUpdatingLang === lang.code && (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        )}
-                        {lang.code === profile?.nativeLanguage && isUpdatingLang !== lang.code && (
-                          <Check className="h-4 w-4" />
-                        )}
-                      </button>
-                    ))}
-                  </div>
+              {/* Language info + pickers (wrapped in ref for click-outside) */}
+              <div className="min-w-0 flex-1" ref={pickerRef}>
+                <p className="text-xs font-medium tracking-wider text-[var(--text-muted)] uppercase">
+                  I&apos;m learning
+                </p>
+                <h2
+                  className="text-xl font-bold text-[var(--text-primary)] sm:text-3xl"
+                  style={{ fontFamily: "var(--font-heading-cfg)" }}
+                >
+                  {targetLang.name}
+                </h2>
+                <p className="mt-0.5 text-sm text-[var(--text-secondary)]">{targetLang.nativeName}</p>
+                <div className="mt-2 flex flex-wrap items-center gap-1.5 sm:gap-2">
+                  {/* Native language — clickable to change */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActivePicker(activePicker === "native" ? null : "native");
+                    }}
+                    className="inline-flex items-center gap-1 rounded-full bg-[var(--bg-elevated)] px-2 py-1 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--accent-light)] hover:text-[var(--accent-primary)] sm:px-2.5 sm:py-1"
+                  >
+                    {nativeLang.flagEmoji} {nativeLang.name}
+                    <ChevronDown
+                      className={`h-3 w-3 transition-transform ${activePicker === "native" ? "rotate-180" : ""}`}
+                    />
+                  </button>
+                  <span className="text-[var(--text-muted)]">→</span>
+                  {/* Target language — clickable to change */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActivePicker(activePicker === "target" ? null : "target");
+                    }}
+                    className="inline-flex items-center gap-1 rounded-full bg-[var(--accent-light)] px-2 py-1 text-xs font-medium text-[var(--accent-primary)] transition-colors hover:bg-[var(--accent-primary)] hover:text-white sm:px-2.5 sm:py-1"
+                  >
+                    {targetLang.flagEmoji} {targetLang.name}
+                    <ChevronDown
+                      className={`h-3 w-3 transition-transform ${activePicker === "target" ? "rotate-180" : ""}`}
+                    />
+                  </button>
+                  <span className="inline-flex items-center rounded-full bg-[var(--bg-elevated)] px-2 py-1 text-xs text-[var(--text-secondary)] capitalize sm:px-2.5 sm:py-1">
+                    {level}
+                  </span>
+                  {profile?.isPro && (
+                    <span className="inline-flex items-center gap-0.5 rounded-full bg-[var(--color-gold-light)] px-2 py-1 text-xs font-medium text-[var(--color-gold)] sm:px-2.5 sm:py-1">
+                      <Crown className="h-3 w-3" /> Pro
+                    </span>
+                  )}
                 </div>
-              )}
 
-              {/* ═══ Target language picker ═══ */}
-              {activePicker === "target" && (
-                <div className="relative z-50 mt-3 w-72 rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-2 shadow-[var(--shadow-lg)]">
-                  <p className="mb-2 px-3 text-[10px] font-medium tracking-wider text-[var(--text-muted)] uppercase">
-                    I want to learn (target language)
-                  </p>
-                  <div className="max-h-64 overflow-y-auto">
-                    {SUPPORTED_LANGUAGES.filter(
-                      (l) => l.code !== (profile?.nativeLanguage || "en")
-                    ).map((lang) => (
-                      <button
-                        key={lang.code}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleTargetLangChange(lang.code);
-                        }}
-                        disabled={!!isUpdatingLang}
-                        className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors hover:bg-[var(--bg-elevated)] disabled:opacity-50 ${
-                          lang.code === profile?.targetLanguage
-                            ? "bg-[var(--accent-light)] text-[var(--accent-primary)]"
-                            : "text-[var(--text-primary)]"
-                        }`}
-                      >
-                        <span className="text-xl">{lang.flagEmoji}</span>
-                        <div className="min-w-0 flex-1 text-left">
-                          <span className="font-medium">{lang.name}</span>
-                          <span className="ml-1.5 text-xs text-[var(--text-muted)]">
-                            {lang.nativeName}
-                          </span>
-                        </div>
-                        {isUpdatingLang === lang.code && (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        )}
-                        {lang.code === profile?.targetLanguage && isUpdatingLang !== lang.code && (
-                          <Check className="h-4 w-4" />
-                        )}
-                      </button>
-                    ))}
+                {/* ═══ Native language picker ═══ */}
+                {activePicker === "native" && (
+                  <div className="relative z-50 mt-3 w-full max-w-72 rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-2 shadow-[var(--shadow-lg)]">
+                    <p className="mb-2 px-3 text-[10px] font-medium tracking-wider text-[var(--text-muted)] uppercase">
+                      I speak (native language)
+                    </p>
+                    <div className="max-h-64 overflow-y-auto">
+                      {SUPPORTED_LANGUAGES.filter(
+                        (l) => l.code !== (profile?.targetLanguage || "ar")
+                      ).map((lang) => (
+                        <button
+                          key={lang.code}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleNativeLangChange(lang.code);
+                          }}
+                          disabled={!!isUpdatingLang}
+                          className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors hover:bg-[var(--bg-elevated)] disabled:opacity-50 ${
+                            lang.code === profile?.nativeLanguage
+                              ? "bg-[var(--accent-light)] text-[var(--accent-primary)]"
+                              : "text-[var(--text-primary)]"
+                          }`}
+                        >
+                          <span className="text-xl">{lang.flagEmoji}</span>
+                          <div className="min-w-0 flex-1 text-left">
+                            <span className="font-medium">{lang.name}</span>
+                            <span className="ml-1.5 text-xs text-[var(--text-muted)]">
+                              {lang.nativeName}
+                            </span>
+                          </div>
+                          {isUpdatingLang === lang.code && (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          )}
+                          {lang.code === profile?.nativeLanguage && isUpdatingLang !== lang.code && (
+                            <Check className="h-4 w-4" />
+                          )}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+
+                {/* ═══ Target language picker ═══ */}
+                {activePicker === "target" && (
+                  <div className="relative z-50 mt-3 w-full max-w-72 rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-2 shadow-[var(--shadow-lg)]">
+                    <p className="mb-2 px-3 text-[10px] font-medium tracking-wider text-[var(--text-muted)] uppercase">
+                      I want to learn (target language)
+                    </p>
+                    <div className="max-h-64 overflow-y-auto">
+                      {SUPPORTED_LANGUAGES.filter(
+                        (l) => l.code !== (profile?.nativeLanguage || "en")
+                      ).map((lang) => (
+                        <button
+                          key={lang.code}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleTargetLangChange(lang.code);
+                          }}
+                          disabled={!!isUpdatingLang}
+                          className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors hover:bg-[var(--bg-elevated)] disabled:opacity-50 ${
+                            lang.code === profile?.targetLanguage
+                              ? "bg-[var(--accent-light)] text-[var(--accent-primary)]"
+                              : "text-[var(--text-primary)]"
+                          }`}
+                        >
+                          <span className="text-xl">{lang.flagEmoji}</span>
+                          <div className="min-w-0 flex-1 text-left">
+                            <span className="font-medium">{lang.name}</span>
+                            <span className="ml-1.5 text-xs text-[var(--text-muted)]">
+                              {lang.nativeName}
+                            </span>
+                          </div>
+                          {isUpdatingLang === lang.code && (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          )}
+                          {lang.code === profile?.targetLanguage && isUpdatingLang !== lang.code && (
+                            <Check className="h-4 w-4" />
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
-            {/* Change language button — opens target language picker */}
-            <div>
+            {/* Change language button — full width on mobile, inline on desktop */}
+            <div className="sm:shrink-0">
               <button
                 onClick={(e) => {
                   e.stopPropagation();
                   setActivePicker(activePicker === "target" ? null : "target");
                 }}
                 disabled={!!isUpdatingLang}
-                className="flex items-center gap-1.5 rounded-xl bg-[var(--accent-primary)] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-[var(--accent-hover)] hover:shadow-md disabled:opacity-50"
+                className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-[var(--accent-primary)] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-[var(--accent-hover)] hover:shadow-md disabled:opacity-50 sm:w-auto"
               >
                 {isUpdatingLang ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -393,6 +416,55 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* ═══ Upgrade Success Banner ═══ */}
+      {isUpgraded && (
+        <div className="mb-8 rounded-2xl border border-[var(--state-success)]/20 bg-[var(--state-success-light)] p-4">
+          <div className="flex items-center gap-3">
+            <CheckCircle2 className="h-6 w-6 shrink-0 text-[var(--state-success)]" />
+            <div>
+              <p className="text-sm font-semibold text-[var(--state-success)]">
+                Welcome to Pro! 🎉
+              </p>
+              <p className="text-xs text-[var(--state-success)]/80">
+                Your subscription is now active. Enjoy unlimited conversations and all premium features!
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ Upgrade CTA Banner (Free users) ═══ */}
+      {!profile?.isPro && (
+        <div className="mb-8">
+          <Link
+            href="/pricing"
+            className="gradient-conbolo group flex items-center justify-between rounded-2xl p-5 text-white transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg"
+          >
+            <div className="flex items-center gap-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/20">
+                <Crown className="h-6 w-6" />
+              </div>
+              <div>
+                <h3
+                  className="font-semibold"
+                  style={{ fontFamily: "var(--font-heading-cfg)" }}
+                >
+                  Upgrade to Pro
+                </h3>
+                <p className="text-sm text-white/80">
+                  Unlimited conversations, premium scenarios & more
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 rounded-xl bg-white/20 px-4 py-2 text-sm font-semibold transition-colors hover:bg-white/30">
+              <Sparkles className="h-4 w-4" />
+              Upgrade Now
+              <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+            </div>
+          </Link>
+        </div>
+      )}
 
       {/* ═══ Stats Grid ═══ */}
       <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -569,19 +641,72 @@ export default function DashboardPage() {
             View all
           </Link>
         </div>
-        <div className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-6 text-center">
-          <Trophy className="mx-auto mb-3 h-10 w-10 text-[var(--text-muted)]" />
-          <h3
-            className="mb-1 text-sm font-semibold text-[var(--text-primary)]"
-            style={{ fontFamily: "var(--font-heading-cfg)" }}
-          >
-            No achievements yet
-          </h3>
-          <p className="text-xs text-[var(--text-muted)]">
-            Start your first conversation to unlock your first achievement!
-          </p>
-        </div>
+
+        {achievements.length === 0 ? (
+          /* Empty state — still loading or no data */
+          <div className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-6 text-center">
+            <Trophy className="mx-auto mb-3 h-10 w-10 text-[var(--text-muted)]" />
+            <h3
+              className="mb-1 text-sm font-semibold text-[var(--text-primary)]"
+              style={{ fontFamily: "var(--font-heading-cfg)" }}
+            >
+              No achievements yet
+            </h3>
+            <p className="text-xs text-[var(--text-muted)]">
+              Start your first conversation to unlock your first achievement!
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            {achievements.map((ach) => (
+              <div
+                key={ach.id}
+                className={`group rounded-2xl border p-4 text-center transition-all duration-300 hover:-translate-y-0.5 ${
+                  ach.unlocked
+                    ? "border-[var(--color-gold)]/30 bg-gradient-to-br from-[var(--color-gold-light)]/50 to-[var(--bg-surface)] hover:border-[var(--color-gold)]/50 hover:shadow-[var(--shadow-md)]"
+                    : "border-[var(--border-default)] bg-[var(--bg-surface)] opacity-60 hover:opacity-80"
+                }`}
+              >
+                <div className="mb-2 text-3xl">
+                  {ach.unlocked ? (
+                    ach.icon
+                  ) : (
+                    <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-[var(--bg-elevated)]">
+                      <Lock className="h-4 w-4 text-[var(--text-muted)]" />
+                    </div>
+                  )}
+                </div>
+                <h3
+                  className={`mb-0.5 text-xs font-semibold leading-tight ${
+                    ach.unlocked ? "text-[var(--text-primary)]" : "text-[var(--text-muted)]"
+                  }`}
+                  style={{ fontFamily: "var(--font-heading-cfg)" }}
+                >
+                  {ach.title}
+                </h3>
+                <p className="text-[10px] leading-snug text-[var(--text-secondary)]">
+                  {ach.description}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
+  );
+}
+
+// Wrap with Suspense for useSearchParams() compatibility
+export default function DashboardPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[50vh] items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-[var(--accent-primary)]" />
+        </div>
+      }
+    >
+      <DashboardPageContent />
+    </Suspense>
   );
 }

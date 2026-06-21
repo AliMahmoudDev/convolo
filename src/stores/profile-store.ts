@@ -37,6 +37,8 @@ export interface ProfileData {
   targetLanguage: string | null;
   proficiencyLevel: ProficiencyLevel;
   isPro: boolean;
+  /** Whether the user has completed the onboarding wizard */
+  onboardingCompleted: boolean;
 }
 
 interface ProfileState {

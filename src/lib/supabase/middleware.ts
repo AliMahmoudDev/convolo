@@ -99,12 +99,24 @@ export async function updateSession(request: NextRequest) {
     }
   }
 
-  // Protect admin routes
+  // Protect admin routes — must be authenticated AND in ADMIN_EMAILS
   if (pathname.startsWith("/admin")) {
     if (!user) {
       const url = request.nextUrl.clone();
       url.pathname = "/login";
       url.searchParams.set("callbackUrl", pathname);
+      return NextResponse.redirect(url);
+    }
+
+    // Check if user email is in ADMIN_EMAILS env var
+    const adminEmails = (process.env.ADMIN_EMAILS || "")
+      .split(",")
+      .map((e) => e.trim().toLowerCase());
+    const userEmail = (user.email || "").toLowerCase();
+    if (!adminEmails.includes(userEmail)) {
+      // Not an admin — redirect to dashboard
+      const url = request.nextUrl.clone();
+      url.pathname = "/dashboard";
       return NextResponse.redirect(url);
     }
   }

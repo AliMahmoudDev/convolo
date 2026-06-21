@@ -1,14 +1,48 @@
-import type { Metadata } from "next";
-import Link from "next/link";
-import { FadeInSection } from "@/components/marketing/fade-in-section";
-import { Check, X, ChevronRight, Crown, ArrowRight, Shield, Zap, CreditCard } from "lucide-react";
-import { Button } from "@/components/ui/button";
+"use client";
 
-export const metadata: Metadata = {
-  title: "Pricing — Convolo",
-  description:
-    "Simple, transparent pricing for Convolo. Start free with 3 daily conversations, or upgrade to Pro for unlimited access.",
-};
+/**
+ * Pricing Page — Convolo
+ *
+ * Features:
+ * - Free and Pro plan comparison cards
+ * - "Upgrade to Pro" button creates a Stripe Checkout session
+ * - Loading state while creating checkout
+ * - Success message if ?upgraded=true in URL (redirected from Stripe)
+ * - Cancellation message if ?canceled=true in URL (user canceled on Stripe)
+ * - Pro users see "Manage Subscription" button instead of upgrade
+ * - FAQ section and trust badges
+ *
+ * Environment variables (documented for reference):
+ * - STRIPE_SECRET_KEY=sk_test_...          (server-side)
+ * - STRIPE_WEBHOOK_SECRET=whsec_...        (server-side)
+ * - STRIPE_PRICE_ID=price_...              (server-side)
+ * - NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_... (client-side, loaded by @stripe/stripe-js)
+ */
+
+import { useState, useEffect, useCallback, Suspense } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { FadeInSection } from "@/components/marketing/fade-in-section";
+import {
+  Check,
+  X,
+  ChevronRight,
+  Crown,
+  Shield,
+  Zap,
+  CreditCard,
+  Loader2,
+  AlertCircle,
+  CheckCircle2,
+  Settings,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useAuthStore } from "@/stores/auth-store";
+import { useProfileStore } from "@/stores/profile-store";
+
+// ═══════════════════════════════════════════
+// Plan Definitions
+// ═══════════════════════════════════════════
 
 const pricingPlans = [
   {
@@ -37,7 +71,7 @@ const pricingPlans = [
     price: "$9.99",
     period: "/month",
     yearlyPrice: "$79.99/year",
-    cta: "Start Pro Trial",
+    cta: "Upgrade to Pro",
     highlight: true,
     description: "Unlimited practice for serious learners who want to achieve fluency faster.",
     features: [
@@ -84,7 +118,88 @@ const faqs = [
   },
 ];
 
-export default function PricingPage() {
+// ═══════════════════════════════════════════
+// Main Component
+// ═══════════════════════════════════════════
+
+function PricingPageContent() {
+  const searchParams = useSearchParams();
+  const user = useAuthStore((s) => s.user);
+  const profile = useProfileStore((s) => s.profile);
+  const fetchProfile = useProfileStore((s) => s.fetchProfile);
+  const isProfileInitialized = useProfileStore((s) => s.isInitialized);
+
+  const [isCreatingCheckout, setIsCreatingCheckout] = useState(false);
+  const [isCreatingPortal, setIsCreatingPortal] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Status messages from URL params
+  const isUpgraded = searchParams.get("upgraded") === "true";
+  const isCanceled = searchParams.get("canceled") === "true";
+
+  // Fetch profile to determine Pro status
+  useEffect(() => {
+    if (!isProfileInitialized) {
+      fetchProfile();
+    }
+  }, [isProfileInitialized, fetchProfile]);
+
+  const isPro = profile?.isPro ?? false;
+
+  // ─── Create Stripe Checkout Session ───
+  const handleUpgrade = useCallback(async () => {
+    if (isCreatingCheckout) return;
+
+    // If not logged in, redirect to login
+    if (!user) {
+      window.location.href = "/login";
+      return;
+    }
+
+    setIsCreatingCheckout(true);
+    setErrorMessage(null);
+
+    try {
+      const res = await fetch("/api/stripe/checkout", { method: "POST" });
+      const data = await res.json();
+
+      if (data.success && data.data?.url) {
+        // Redirect to Stripe Checkout
+        window.location.href = data.data.url;
+      } else {
+        setErrorMessage(data.error?.message || "Failed to create checkout session. Please try again.");
+      }
+    } catch {
+      setErrorMessage("Something went wrong. Please try again.");
+    } finally {
+      setIsCreatingCheckout(false);
+    }
+  }, [isCreatingCheckout, user]);
+
+  // ─── Create Stripe Customer Portal Session ───
+  const handleManageSubscription = useCallback(async () => {
+    if (isCreatingPortal) return;
+
+    setIsCreatingPortal(true);
+    setErrorMessage(null);
+
+    try {
+      const res = await fetch("/api/stripe/portal", { method: "POST" });
+      const data = await res.json();
+
+      if (data.success && data.data?.url) {
+        // Redirect to Stripe Customer Portal
+        window.location.href = data.data.url;
+      } else {
+        setErrorMessage(data.error?.message || "Failed to open subscription management. Please try again.");
+      }
+    } catch {
+      setErrorMessage("Something went wrong. Please try again.");
+    } finally {
+      setIsCreatingPortal(false);
+    }
+  }, [isCreatingPortal]);
+
   return (
     <div className="bg-[var(--bg-base)] py-20 sm:py-28">
       <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
@@ -101,6 +216,41 @@ export default function PricingPage() {
             data is always yours.
           </p>
         </FadeInSection>
+
+        {/* ─── Status Messages ─── */}
+        {(isUpgraded || isCanceled || errorMessage) && (
+          <div className="mb-10">
+            {isUpgraded && (
+              <div className="mx-auto max-w-2xl rounded-2xl border border-[var(--state-success)]/20 bg-[var(--state-success-light)] p-4 text-center">
+                <CheckCircle2 className="mx-auto mb-2 h-6 w-6 text-[var(--state-success)]" />
+                <p className="text-sm font-semibold text-[var(--state-success)]">
+                  Welcome to Pro! 🎉
+                </p>
+                <p className="text-xs text-[var(--state-success)]/80">
+                  Your subscription is now active. Enjoy unlimited conversations and all premium
+                  features!
+                </p>
+              </div>
+            )}
+            {isCanceled && (
+              <div className="mx-auto max-w-2xl rounded-2xl border border-[var(--color-gold)]/20 bg-[var(--color-gold-light)] p-4 text-center">
+                <AlertCircle className="mx-auto mb-2 h-6 w-6 text-[var(--color-gold)]" />
+                <p className="text-sm font-semibold text-[var(--color-gold)]">
+                  Checkout canceled
+                </p>
+                <p className="text-xs text-[var(--color-gold)]/80">
+                  No worries — you can upgrade anytime when you&apos;re ready.
+                </p>
+              </div>
+            )}
+            {errorMessage && (
+              <div className="mx-auto max-w-2xl rounded-2xl border border-[var(--state-error)]/20 bg-[var(--state-error-light)] p-4 text-center">
+                <AlertCircle className="mx-auto mb-2 h-6 w-6 text-[var(--state-error)]" />
+                <p className="text-sm font-semibold text-[var(--state-error)]">{errorMessage}</p>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Pricing Cards */}
         <div className="mb-20 grid grid-cols-1 gap-8 md:grid-cols-2">
@@ -167,17 +317,50 @@ export default function PricingPage() {
                     ))}
                   </ul>
 
-                  <Button
-                    size="lg"
-                    className={`h-12 w-full rounded-xl text-base font-semibold ${
-                      plan.highlight
-                        ? "gradient-conbolo border-0 text-white shadow-[var(--shadow-glow)] transition-opacity hover:opacity-90"
-                        : "border border-[var(--border-default)] bg-[var(--bg-elevated)] text-[var(--text-primary)] hover:bg-[var(--border-default)]"
-                    }`}
-                  >
-                    {plan.cta}
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
+                  {/* ─── CTA Button ─── */}
+                  {plan.highlight ? (
+                    // Pro plan — upgrade or manage
+                    isPro ? (
+                      <Button
+                        size="lg"
+                        onClick={handleManageSubscription}
+                        disabled={isCreatingPortal}
+                        className="h-12 w-full rounded-xl border-0 text-base font-semibold gradient-conbolo shadow-[var(--shadow-glow)] transition-opacity hover:opacity-90"
+                      >
+                        {isCreatingPortal ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Settings className="mr-2 h-4 w-4" />
+                        )}
+                        Manage Subscription
+                      </Button>
+                    ) : (
+                      <Button
+                        size="lg"
+                        onClick={handleUpgrade}
+                        disabled={isCreatingCheckout}
+                        className="h-12 w-full rounded-xl border-0 text-base font-semibold gradient-conbolo text-white shadow-[var(--shadow-glow)] transition-opacity hover:opacity-90"
+                      >
+                        {isCreatingCheckout ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Crown className="mr-2 h-4 w-4" />
+                        )}
+                        {isCreatingCheckout ? "Creating checkout..." : plan.cta}
+                      </Button>
+                    )
+                  ) : (
+                    // Free plan — just link to signup or dashboard
+                    <Link href={user ? "/dashboard" : "/signup"} className="block">
+                      <Button
+                        size="lg"
+                        className="h-12 w-full rounded-xl text-base font-semibold border border-[var(--border-default)] bg-[var(--bg-elevated)] text-[var(--text-primary)] hover:bg-[var(--border-default)]"
+                      >
+                        {plan.cta}
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </Link>
+                  )}
                 </div>
               </div>
             </FadeInSection>
@@ -245,5 +428,20 @@ export default function PricingPage() {
         </FadeInSection>
       </div>
     </div>
+  );
+}
+
+// Wrap with Suspense for useSearchParams() compatibility
+export default function PricingPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[50vh] items-center justify-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-[var(--accent-primary)] border-t-transparent" />
+        </div>
+      }
+    >
+      <PricingPageContent />
+    </Suspense>
   );
 }

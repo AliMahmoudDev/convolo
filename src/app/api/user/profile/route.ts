@@ -42,6 +42,9 @@ export async function GET() {
 
     const isPro = dbUser.subscription?.plan !== "free" && dbUser.subscription?.status === "active";
 
+    // Onboarding is completed when the user has selected a target language
+    const onboardingCompleted = dbUser.targetLanguage !== null && dbUser.targetLanguage !== "";
+
     return successResponse({
       id: dbUser.id,
       name: dbUser.name,
@@ -50,6 +53,7 @@ export async function GET() {
       targetLanguage: dbUser.targetLanguage,
       proficiencyLevel: dbUser.proficiencyLevel,
       isPro,
+      onboardingCompleted,
     });
   } catch (error) {
     console.error("[Profile API] GET error:", error);
@@ -134,6 +138,9 @@ export async function PUT(request: NextRequest) {
 
     const isPro = subscription?.plan !== "free" && subscription?.status === "active";
 
+    // Onboarding is completed when the user has selected a target language
+    const onboardingCompleted = updatedUser.targetLanguage !== null && updatedUser.targetLanguage !== "";
+
     return successResponse({
       id: updatedUser.id,
       name: updatedUser.name,
@@ -142,6 +149,7 @@ export async function PUT(request: NextRequest) {
       targetLanguage: updatedUser.targetLanguage,
       proficiencyLevel: updatedUser.proficiencyLevel,
       isPro,
+      onboardingCompleted,
     });
   } catch (error) {
     console.error("[Profile API] PUT error:", error);
