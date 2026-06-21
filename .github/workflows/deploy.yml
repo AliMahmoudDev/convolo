@@ -1,12 +1,10 @@
 # Convolo — Deploy to Vercel (Production)
-# Requires VERCEL_TOKEN + NEXT_PUBLIC_SUPABASE_URL + NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
-# Setup: GitHub → Repo Settings → Secrets → Actions
+# Auto-deploy is handled by Vercel's own GitHub integration.
+# This workflow is kept as a manual fallback only.
 
 name: Deploy Production
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -51,8 +49,6 @@ jobs:
         if: steps.check-token.outputs.skip == 'false'
         run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
         env:
-          # Inject NEXT_PUBLIC_ vars so they're embedded during build
-          # These are needed by Supabase client code at build time
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
 

@@ -65,14 +65,5 @@ jobs:
       - name: Build application
         run: bun run build
         env:
-          # Skip env validation during CI build
           NEXT_TELEMETRY_DISABLED: 1
           SKIP_ENV_VALIDATION: 1
-
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        if: github.ref == 'refs/heads/main'
-        with:
-          name: next-build
-          path: .next/
-          retention-days: 1
