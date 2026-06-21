@@ -1,22 +1,8 @@
 /**
  * GET /api/user/profile — Fetch the current user's profile
- *
- * Returns: language preferences, proficiency level, subscription status
- * Used by the frontend to pre-fill language selectors and check access.
- *
  * PUT /api/user/profile — Update the current user's profile
  *
- * Accepts partial updates: { name, nativeLanguage, targetLanguage, proficiencyLevel }
- * Only the fields you send will be updated (the rest stay the same).
- *
- * ═══════════════════════════════════════════
- * AUTO-PROVISIONING
- * ═══════════════════════════════════════════
- *
- * If the user has a valid Supabase session but no Prisma User record
- * (e.g., they signed up via Google OAuth which doesn't create one),
- * we automatically create the record on first access.
- * This is called "lazy provisioning" and it self-heals any gaps.
+ * Uses Supabase JS Client (PostgREST over HTTPS).
  */
 
 import { NextRequest } from "next/server";
@@ -47,18 +33,15 @@ const VALID_LANGUAGE_CODES = [
 
 export async function GET() {
   try {
-    // 1. Authenticate
     const user = await getAuthUser();
     if (!user) {
       return errorResponse("UNAUTHORIZED", "Please log in", 401);
     }
 
-    // 2. Get or create the Prisma user (auto-provisioning)
     const dbUser = await getOrCreateUser(user);
 
     const isPro = dbUser.subscription?.plan !== "free" && dbUser.subscription?.status === "active";
 
-    // 3. Return profile data
     return successResponse({
       id: dbUser.id,
       name: dbUser.name,
@@ -76,29 +59,25 @@ export async function GET() {
 
 export async function PUT(request: NextRequest) {
   try {
-    // 1. Authenticate
     const user = await getAuthUser();
     if (!user) {
       return errorResponse("UNAUTHORIZED", "Please log in", 401);
     }
 
-    // 2. Ensure user exists in DB (auto-provisioning)
-    await getOrCreateUser(user);
+    const dbUser = await getOrCreateUser(user);
 
-    // 3. Parse and validate request body
     const body = await parseRequestBody<Record<string, unknown>>(request);
     if (!body) {
       return errorResponse("VALIDATION_ERROR", "Invalid request body");
     }
 
-    // 4. Build update data — only allow specific fields
+    // Build update data — only allow specific fields
     const updateData: Record<string, unknown> = {};
 
     for (const field of UPDATABLE_FIELDS) {
       if (field in body) {
         const value = body[field];
 
-        // Validate specific fields
         if (field === "name") {
           if (typeof value !== "string" || value.trim().length === 0) {
             return errorResponse("VALIDATION_ERROR", "Name cannot be empty");
@@ -113,7 +92,6 @@ export async function PUT(request: NextRequest) {
           }
           updateData[field] = value;
         } else if (field === "nativeLanguage" || field === "targetLanguage") {
-          // targetLanguage can be null (not selected yet)
           if (value === null || value === "") {
             if (field === "nativeLanguage") {
               return errorResponse("VALIDATION_ERROR", "Native language is required");
@@ -128,24 +106,34 @@ export async function PUT(request: NextRequest) {
       }
     }
 
-    // 5. Check that at least one valid field was provided
     if (Object.keys(updateData).length === 0) {
       return errorResponse("VALIDATION_ERROR", "No valid fields to update");
     }
 
-    // 6. Update the user
-    const updatedUser = await db.user.update({
-      where: { supabaseUid: user.id },
-      data: updateData,
-      include: {
-        subscription: { select: { plan: true, status: true } },
-      },
-    });
+    // Update the user via Supabase
+    updateData.updatedAt = new Date().toISOString();
 
-    const isPro =
-      updatedUser.subscription?.plan !== "free" && updatedUser.subscription?.status === "active";
+    const { data: updatedUser, error: updateError } = await db
+      .from("users")
+      .update(updateData as Record<string, never>)
+      .eq("id", dbUser.id)
+      .select("id, name, email, nativeLanguage, targetLanguage, proficiencyLevel")
+      .single();
 
-    // 7. Return updated profile
+    if (updateError) {
+      console.error("[Profile API] Update error:", updateError);
+      return errorResponse("INTERNAL_ERROR", "Failed to update profile", 500);
+    }
+
+    // Fetch subscription separately
+    const { data: subscription } = await db
+      .from("subscriptions")
+      .select("plan, status")
+      .eq("userId", updatedUser.id)
+      .maybeSingle();
+
+    const isPro = subscription?.plan !== "free" && subscription?.status === "active";
+
     return successResponse({
       id: updatedUser.id,
       name: updatedUser.name,

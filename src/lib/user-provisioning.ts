@@ -1,104 +1,126 @@
 /**
- * User Provisioning — Auto-create Prisma User records for authenticated users.
+ * User Provisioning — Auto-create User records for authenticated Supabase users.
  *
- * ═══════════════════════════════════════════
- * WHY DO WE NEED THIS?
- * ═══════════════════════════════════════════
+ * Lazy Provisioning: when any API route needs the user, it checks if the
+ * record exists and creates it if missing. This works for all auth methods
+ * (email, Google OAuth, etc.) and self-heals if initial creation fails.
  *
- * When a user signs up (via email or Google OAuth), Supabase creates an Auth
- * user record. But our Prisma database does NOT automatically get a matching
- * User record. This means:
- *
- *   Supabase Auth: ✅ User exists (can log in)
- *   Prisma DB:     ❌ No User record (can't fetch profile, start conversations, etc.)
- *
- * This gap causes the "Failed to load profile — Unexpected end of JSON input" error.
- * The API route crashes because it finds a Supabase user but no Prisma user.
- *
- * ═══════════════════════════════════════════
- * THE FIX: LAZY PROVISIONING
- * ═══════════════════════════════════════════
- *
- * Instead of requiring the signup flow to create the Prisma record,
- * we use "lazy provisioning" — when any API route needs the Prisma user,
- * it checks if the record exists and creates it if missing.
- *
- * This is MORE ROBUST because:
- * 1. It works for email signup, Google OAuth, and any future auth method
- * 2. It self-heals — even if the initial creation somehow fails, it retries
- * 3. It's idempotent — calling it multiple times is safe
- * 4. No need to modify the signup form or OAuth callback
- *
- * HOW IT WORKS:
- * 1. Take the Supabase user object
- * 2. Try to find a matching Prisma User by supabaseUid
- * 3. If found → return it
- * 4. If not found → create one using data from Supabase user_metadata
- * 5. Also create a free Subscription record for the new user
+ * Uses Supabase JS Client (PostgREST over HTTPS).
  */
 
 import { db } from "@/lib/db";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
 
+// App-level user shape (from DB, with subscription info)
+export interface AppUser {
+  id: string;
+  email: string;
+  name: string;
+  supabaseUid: string | null;
+  nativeLanguage: string;
+  targetLanguage: string | null;
+  proficiencyLevel: string;
+  subscription?: {
+    plan: string;
+    status: string;
+  } | null;
+}
+
 /**
- * Get or create a Prisma User record for the given Supabase user.
+ * Get or create a User record for the given Supabase auth user.
  *
  * This is the single source of truth for user provisioning.
- * Every API route that needs the Prisma user should call this.
- *
- * @param supabaseUser - The user from supabase.auth.getUser()
- * @returns The Prisma User record (with subscription included)
+ * Every API route that needs the user should call this.
  */
-export async function getOrCreateUser(supabaseUser: SupabaseUser) {
-  // 1. Try to find existing user with subscription
-  const existingUser = await db.user.findUnique({
-    where: { supabaseUid: supabaseUser.id },
-    include: {
-      subscription: true,
-    },
-  });
+export async function getOrCreateUser(supabaseUser: SupabaseUser): Promise<AppUser> {
+  // 1. Try to find existing user
+  const { data: existingUser, error: fetchError } = await db
+    .from("users")
+    .select("id, email, name, supabaseUid, nativeLanguage, targetLanguage, proficiencyLevel")
+    .eq("supabaseUid", supabaseUser.id)
+    .maybeSingle();
 
-  if (existingUser) {
-    return existingUser;
+  if (existingUser && !fetchError) {
+    // Fetch subscription
+    const { data: subscription } = await db
+      .from("subscriptions")
+      .select("plan, status")
+      .eq("userId", existingUser.id)
+      .maybeSingle();
+
+    return {
+      ...existingUser,
+      subscription: subscription || null,
+    };
   }
 
   // 2. User doesn't exist — create one!
-  // Extract name from Supabase user_metadata (set during signup)
   const name =
     supabaseUser.user_metadata?.name ||
     supabaseUser.user_metadata?.full_name ||
     supabaseUser.email?.split("@")[0] ||
     "User";
 
-  // Detect auth provider
-  const provider = supabaseUser.app_metadata?.provider === "google" ? "google" : "email";
+  console.log(`[Provisioning] Creating User for ${supabaseUser.email}`);
 
-  console.log(
-    `[Provisioning] Creating Prisma User for ${supabaseUser.email} (provider: ${provider})`
-  );
+  const now = new Date().toISOString();
+  const userId = crypto.randomUUID();
 
-  // 3. Create the user + free subscription in a transaction
-  const newUser = await db.user.create({
-    data: {
+  // Create user
+  const { data: newUser, error: createError } = await db
+    .from("users")
+    .insert({
+      id: userId,
       supabaseUid: supabaseUser.id,
       email: supabaseUser.email!,
       name,
-      provider,
-      emailVerified: supabaseUser.confirmed_at ? new Date(supabaseUser.confirmed_at) : null,
-      subscription: {
-        create: {
-          plan: "free",
-          status: "active",
-          // stripeCustomerId is required by Prisma but not used for free plans
-          // We use a generated placeholder that's unique per user
-          stripeCustomerId: `free_${supabaseUser.id}`,
-        },
-      },
-    },
-    include: {
-      subscription: true,
-    },
+      provider: supabaseUser.app_metadata?.provider === "google" ? "google" : "email",
+      nativeLanguage: "en",
+      proficiencyLevel: "beginner",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .select("id, email, name, supabaseUid, nativeLanguage, targetLanguage, proficiencyLevel")
+    .single();
+
+  if (createError) {
+    console.error("[Provisioning] Error creating user:", createError);
+    // Maybe the user was created by a concurrent request — try fetching again
+    const { data: retryUser } = await db
+      .from("users")
+      .select("id, email, name, supabaseUid, nativeLanguage, targetLanguage, proficiencyLevel")
+      .eq("supabaseUid", supabaseUser.id)
+      .maybeSingle();
+
+    if (retryUser) {
+      const { data: subscription } = await db
+        .from("subscriptions")
+        .select("plan, status")
+        .eq("userId", retryUser.id)
+        .maybeSingle();
+
+      return {
+        ...retryUser,
+        subscription: subscription || null,
+      };
+    }
+
+    throw new Error("Failed to create user record");
+  }
+
+  // Create free subscription
+  await db.from("subscriptions").insert({
+    id: crypto.randomUUID(),
+    userId: newUser.id,
+    plan: "free",
+    status: "active",
+    stripeCustomerId: `free_${supabaseUser.id}`,
+    createdAt: now,
+    updatedAt: now,
   });
 
-  return newUser;
+  return {
+    ...newUser,
+    subscription: { plan: "free", status: "active" },
+  };
 }

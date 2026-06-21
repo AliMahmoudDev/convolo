@@ -1,29 +1,66 @@
 /**
+ * GET /api/conversations — List user's conversations
  * POST /api/conversations — Start a new conversation
  *
- * Flow:
- * 1. Verify user is authenticated
- * 2. Validate request body (languagePair, scenarioId, difficultyLevel)
- * 3. Check daily conversation limit (free tier = 3/day)
- * 4. If scenarioId provided, fetch scenario from DB
- * 5. Create conversation record in DB
- * 6. Generate AI opening message
- * 7. Create user's DailyUsage record (or increment count)
- * 8. Return conversation + opening message
- *
- * IMPORTANT: The entire handler is wrapped in try/catch to prevent
- * unhandled exceptions from crashing the route. If anything throws,
- * we return a proper JSON error response instead of an HTML error page.
- * This prevents the "Unexpected end of JSON input" error on the frontend.
+ * Uses Supabase JS Client (PostgREST over HTTPS).
+ * Column names use camelCase as returned by PostgREST.
  */
 
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { getAuthUser, errorResponse, successResponse, parseRequestBody } from "@/lib/api-helpers";
-import { conversationStartSchema } from "@/lib/validations";
 import { hasExceededDailyLimit } from "@/lib/constants";
 import { getAIProvider, buildSystemPrompt } from "@/lib/ai";
 import { getOrCreateUser } from "@/lib/user-provisioning";
+
+export async function GET() {
+  try {
+    const user = await getAuthUser();
+    if (!user) {
+      return errorResponse("UNAUTHORIZED", "Please log in", 401);
+    }
+
+    const dbUser = await getOrCreateUser(user);
+
+    const { data: conversations, error: convError } = await db
+      .from("conversations")
+      .select(
+        `
+        *,
+        scenario:scenarios(title, category),
+        messages(count)
+      `
+      )
+      .eq("userId", dbUser.id)
+      .order("startedAt", { ascending: false })
+      .limit(50);
+
+    if (convError) {
+      console.error("[Conversations API] GET fetch error:", convError);
+      return errorResponse("INTERNAL_ERROR", "Failed to fetch conversations", 500);
+    }
+
+    const formatted = (conversations || []).map((conv) => ({
+      id: conv.id,
+      userId: conv.userId,
+      scenarioId: conv.scenarioId,
+      languagePair: conv.languagePair,
+      status: conv.status,
+      difficultyLevel: conv.difficultyLevel,
+      startedAt: conv.startedAt,
+      endedAt: conv.endedAt,
+      messageCount: conv.messageCount,
+      overallScore: conv.overallScore,
+      createdAt: conv.createdAt,
+      scenario: conv.scenario,
+    }));
+
+    return successResponse({ conversations: formatted });
+  } catch (error) {
+    console.error("[Conversations API] GET error:", error);
+    return errorResponse("INTERNAL_ERROR", "Failed to fetch conversations", 500);
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -33,32 +70,29 @@ export async function POST(request: NextRequest) {
       return errorResponse("UNAUTHORIZED", "Please log in to start a conversation", 401);
     }
 
-    // 2. Validate input
-    const body = await parseRequestBody<Record<string, unknown>>(request);
-    if (!body) {
-      return errorResponse("VALIDATION_ERROR", "Invalid request body");
-    }
-
-    const parseResult = conversationStartSchema.safeParse(body);
-    if (!parseResult.success) {
-      const firstError = parseResult.error.issues[0];
-      return errorResponse("VALIDATION_ERROR", firstError?.message || "Invalid input");
-    }
-
-    const { languagePair, scenarioId, difficultyLevel } = parseResult.data;
-
-    // 3. Get or create user's DB record (auto-provisioning)
+    // 2. Get or create user's DB record
     const dbUser = await getOrCreateUser(user);
+
+    // 3. Parse input
+    const body = await parseRequestBody<Record<string, unknown>>(request);
+    const nativeLang = (body?.nativeLanguage as string) || dbUser.nativeLanguage || "en";
+    const targetLang = (body?.targetLanguage as string) || dbUser.targetLanguage || "es";
+    const languagePair = (body?.languagePair as string) || `${nativeLang}-${targetLang}`;
+    const difficultyLevel =
+      (body?.difficultyLevel as string) || dbUser.proficiencyLevel || "beginner";
+    const scenarioId = body?.scenarioId as string | undefined;
 
     const isPro = dbUser.subscription?.plan !== "free" && dbUser.subscription?.status === "active";
 
     // 4. Check daily limit
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = new Date().toISOString().split("T")[0];
 
-    const dailyUsage = await db.dailyUsage.findUnique({
-      where: { userId_date: { userId: dbUser.id, date: today } },
-    });
+    const { data: dailyUsage } = await db
+      .from("daily_usage")
+      .select("conversationsCount")
+      .eq("userId", dbUser.id)
+      .eq("date", today)
+      .maybeSingle();
 
     const conversationsToday = dailyUsage?.conversationsCount ?? 0;
 
@@ -71,129 +105,159 @@ export async function POST(request: NextRequest) {
     }
 
     // 5. Fetch scenario if provided
-    let scenario = null;
+    let scenario: Record<string, unknown> | null = null;
     if (scenarioId) {
-      scenario = await db.scenario.findUnique({ where: { id: scenarioId } });
-      if (!scenario) {
+      const { data: scenarioData, error: scenarioError } = await db
+        .from("scenarios")
+        .select("*")
+        .eq("id", scenarioId)
+        .maybeSingle();
+
+      if (scenarioError || !scenarioData) {
         return errorResponse("NOT_FOUND", "Scenario not found", 404);
       }
-      // Check premium scenario access
+      scenario = scenarioData as unknown as Record<string, unknown>;
+
       if (scenario.isPremium && !isPro) {
         return errorResponse("PREMIUM_REQUIRED", "This scenario requires a Pro subscription", 403);
       }
     }
 
-    const effectiveDifficulty = difficultyLevel || dbUser.proficiencyLevel;
+    // 6. Validate difficulty level
+    const validLevels = ["beginner", "intermediate", "advanced"];
+    const safeDifficulty = validLevels.includes(difficultyLevel)
+      ? (difficultyLevel as "beginner" | "intermediate" | "advanced")
+      : ("beginner" as const);
 
-    // 6. Create conversation in DB
-    const conversation = await db.conversation.create({
-      data: {
+    // 7. Create conversation in DB
+    const conversationId = crypto.randomUUID();
+    const now = new Date().toISOString();
+
+    const { data: conversation, error: convError } = await db
+      .from("conversations")
+      .insert({
+        id: conversationId,
         userId: dbUser.id,
         scenarioId: scenarioId || null,
         languagePair,
-        difficultyLevel: effectiveDifficulty,
-        status: "active",
-        startedAt: new Date(),
-      },
-    });
+        difficultyLevel: safeDifficulty,
+        status: "active" as const,
+        startedAt: now,
+        messageCount: 0,
+        createdAt: now,
+      })
+      .select()
+      .single();
 
-    // 7. Generate AI opening message
+    if (convError) {
+      console.error("[Conversations API] Create error:", convError);
+      return errorResponse("INTERNAL_ERROR", "Failed to create conversation", 500);
+    }
+
+    // 8. Generate AI opening message
     const scenarioContext = scenario
       ? `Scenario: ${scenario.title}. ${scenario.description}. ${scenario.openingLine ? `Start the conversation with: "${scenario.openingLine}"` : ""}`
       : "Free conversation — the user wants to practice casually. Start with a friendly greeting and ask them about their day or interests.";
 
-    const systemPrompt = buildSystemPrompt(
-      languagePair.split("-")[0] === dbUser.nativeLanguage
-        ? languagePair.split("-")[1]
-        : languagePair.split("-")[0],
-      dbUser.nativeLanguage,
-      effectiveDifficulty,
-      scenarioContext
-    );
-
     let openingMessage = "Hello! Let's start practicing. How are you today?";
-    let openingTranslation = "مرحبا! لنبدأ التمرين. كيف حالك اليوم؟";
+    let openingTranslation: string | null = null;
+    let openingVocabulary: unknown[] = [];
 
     try {
-      const aiProvider = getAIProvider();
-      const targetLang =
-        languagePair.split("-")[0] === dbUser.nativeLanguage
-          ? languagePair.split("-")[1]
-          : languagePair.split("-")[0];
+      const [sourceLang, targetLang] = languagePair.split("-");
+      const actualTarget = targetLang === dbUser.nativeLanguage ? sourceLang : targetLang;
 
+      const systemPrompt = buildSystemPrompt(
+        actualTarget,
+        dbUser.nativeLanguage,
+        safeDifficulty,
+        scenarioContext
+      );
+
+      const aiProvider = getAIProvider();
       const aiResponse = await aiProvider.chat({
         systemPrompt,
-        targetLanguage: targetLang,
+        targetLanguage: actualTarget,
         nativeLanguage: dbUser.nativeLanguage,
-        proficiencyLevel: effectiveDifficulty,
+        proficiencyLevel: safeDifficulty,
         history: [],
         userMessage: "Start the conversation with a greeting.",
       });
 
       openingMessage = aiResponse.reply || openingMessage;
-      openingTranslation = aiResponse.translatedReply || openingTranslation;
-
-      // Save the opening message to DB
-      await db.message.create({
-        data: {
-          conversationId: conversation.id,
-          role: "assistant",
-          content: openingMessage,
-          contentTranslated: openingTranslation,
-        },
-      });
+      openingTranslation = aiResponse.translatedReply || null;
+      openingVocabulary = aiResponse.vocabularyItems || [];
     } catch (aiError) {
       console.error("[Conversations API] AI generation failed, using fallback:", aiError);
-      // Save fallback message — the conversation still works, just with a generic opening
-      await db.message.create({
-        data: {
-          conversationId: conversation.id,
-          role: "assistant",
-          content: openingMessage,
-          contentTranslated: openingTranslation,
-        },
-      });
     }
 
-    // 8. Update daily usage count
-    await db.dailyUsage.upsert({
-      where: { userId_date: { userId: dbUser.id, date: today } },
-      create: {
+    // 9. Save the opening message to DB
+    const openingMsgData: Record<string, unknown> = {
+      id: crypto.randomUUID(),
+      conversationId,
+      role: "assistant",
+      content: openingMessage,
+      createdAt: new Date().toISOString(),
+    };
+
+    if (openingTranslation) {
+      openingMsgData.contentTranslated = openingTranslation;
+    }
+    if (Array.isArray(openingVocabulary) && openingVocabulary.length > 0) {
+      openingMsgData.vocabularyItems = openingVocabulary;
+    }
+
+    const { error: msgError } = await db.from("messages").insert(openingMsgData);
+    if (msgError) {
+      console.error("[Conversations API] Message save error:", msgError);
+    }
+
+    // 10. Update daily usage count
+    const { data: existingUsage } = await db
+      .from("daily_usage")
+      .select("conversationsCount")
+      .eq("userId", dbUser.id)
+      .eq("date", today)
+      .maybeSingle();
+
+    if (existingUsage) {
+      await db
+        .from("daily_usage")
+        .update({
+          conversationsCount: existingUsage.conversationsCount + 1,
+          updatedAt: now,
+        })
+        .eq("userId", dbUser.id)
+        .eq("date", today);
+    } else {
+      await db.from("daily_usage").insert({
+        id: crypto.randomUUID(),
         userId: dbUser.id,
         date: today,
         conversationsCount: 1,
         messagesCount: 0,
-      },
-      update: {
-        conversationsCount: { increment: 1 },
-      },
-    });
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
 
-    // 9. Update conversation message count
-    await db.conversation.update({
-      where: { id: conversation.id },
-      data: { messageCount: 1 },
-    });
+    // 11. Update conversation message count
+    await db.from("conversations").update({ messageCount: 1 }).eq("id", conversationId);
 
-    // 10. Return response
+    // 12. Return response
     return successResponse(
       {
-        id: conversation.id,
+        id: conversationId,
         status: "active",
-        languagePair: conversation.languagePair,
-        difficultyLevel: conversation.difficultyLevel,
+        languagePair,
+        difficultyLevel: safeDifficulty,
         openingMessage,
-        openingTranslation,
       },
       201
     );
   } catch (error) {
-    // Top-level catch — prevents "Unexpected end of JSON input" on the frontend
     console.error("[Conversations API] Unhandled error:", error);
-    return errorResponse(
-      "INTERNAL_ERROR",
-      "Something went wrong while starting the conversation. Please try again.",
-      500
-    );
+    const errMsg = error instanceof Error ? error.message : String(error);
+    return errorResponse("INTERNAL_ERROR", `Something went wrong: ${errMsg}`, 500);
   }
 }

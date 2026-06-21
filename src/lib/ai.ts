@@ -1,36 +1,19 @@
 /**
  * Convolo AI Engine — lib/ai.ts
  *
- * This is the heart of the product. It handles:
- * 1. Prompt Engineering — crafting the perfect system prompt for language learning
- * 2. AI Provider Adapter — calling Gemini (or any future provider)
- * 3. Response Parser — extracting structured data from AI's text response
+ * Multi-Provider AI System with Auto-Fallback
+ * Supports: Groq → xAI (Grok) → OpenAI → Gemini
  *
- * ═══════════════════════════════════════════
- * ARCHITECTURE: Adapter Pattern
- * ═══════════════════════════════════════════
+ * If one provider fails (geo-block, quota, etc.), it tries the next.
+ * The rest of the app only calls `sendMessage()` — never directly calls a provider.
  *
- * We define an AIProvider interface (in types/conversation.ts).
- * Each provider (Gemini, OpenAI, etc.) implements this interface.
- * The rest of the app only calls `getAIProvider().chat(context)`.
- *
- * Benefit: Switch providers without changing any API routes or UI.
- *
- * ═══════════════════════════════════════════
- * HOW THE PROMPT WORKS
- * ═══════════════════════════════════════════
- *
- * We tell Gemini to respond in a SPECIFIC JSON format.
- * This is called "Structured Output" — the AI returns JSON, not free text.
- * We then parse that JSON into our ParsedAIResponse type.
- *
- * Why JSON? Because:
- * - We need corrections, vocabulary, and grammar notes as separate fields
- * - We need the AI reply separate from the corrections
- * - Free text would require regex parsing (fragile and error-prone)
- * - JSON is deterministic and testable
+ * KEY: All providers are forced to return JSON via:
+ * - `response_format: { type: "json_object" }` for OpenAI-compatible providers
+ * - System prompt instruction for Gemini
+ * - Fallback parsing with parseAIResponse()
  */
 
+import type { AppUser } from "@/lib/user-provisioning";
 import type {
   AIProvider,
   AIChatContext,
@@ -46,49 +29,34 @@ import { GEMINI_LIMITS } from "@/lib/constants";
 // 1. PROMPT ENGINEERING
 // ═══════════════════════════════════════════
 
-/**
- * Language names map for prompt construction.
- * We need full language names (not codes) in prompts so the AI understands.
- */
 const LANGUAGE_NAMES: Record<string, string> = {
   en: "English",
   ar: "Arabic",
   es: "Spanish",
   fr: "French",
+  de: "German",
+  ja: "Japanese",
+  ko: "Korean",
+  zh: "Chinese",
+  pt: "Portuguese",
+  it: "Italian",
+  ru: "Russian",
+  hi: "Hindi",
+  tr: "Turkish",
 };
 
-/**
- * Difficulty instructions — different guidance per level.
- *
- * WHY: A beginner needs simpler vocabulary and slower pacing.
- * An advanced learner needs complex sentences and nuanced corrections.
- * The AI needs explicit instructions per level.
- */
 const DIFFICULTY_INSTRUCTIONS: Record<ProficiencyLevel, string> = {
   beginner:
-    "Use very simple vocabulary and short sentences (5-8 words). Speak slowly. Focus on basic greetings, common phrases, and essential vocabulary. Correct every mistake gently.",
+    "Use very simple vocabulary and short sentences (5-8 words). Speak slowly. Focus on basic greetings, common phrases, and essential vocabulary. Correct EVERY mistake — even small ones. Always provide 2-3 suggestions for what to say next.",
   intermediate:
-    "Use moderate vocabulary and medium-length sentences (8-15 words). Introduce some idiomatic expressions. Correct significant grammar and vocabulary mistakes. Introduce new useful words.",
+    "Use moderate vocabulary and medium-length sentences (8-15 words). Introduce some idiomatic expressions. Correct significant grammar and vocabulary mistakes. Provide 1-2 suggestions occasionally.",
   advanced:
-    "Use rich vocabulary and complex sentences. Include idioms, colloquialisms, and nuanced expressions. Only correct subtle errors. Challenge the learner with advanced grammar structures.",
+    "Use rich vocabulary and complex sentences. Include idioms, colloquialisms, and nuanced expressions. Only correct subtle errors. Challenge the learner with advanced grammar structures. Fewer suggestions needed.",
 };
 
 /**
  * Build the system prompt for a conversation.
- *
- * THE SYSTEM PROMPT is the most critical part of AI conversation quality.
- * It tells the AI:
- * - WHO it is (a language tutor)
- * - WHAT language pair we're working with
- * - HOW difficult to make the conversation
- * - WHAT format to respond in (JSON!)
- * - SAFETY rules (never inappropriate, never break character)
- *
- * @param targetLanguage - The language the user is learning
- * @param nativeLanguage - The user's native language (for explanations)
- * @param proficiencyLevel - Current level (beginner/intermediate/advanced)
- * @param scenarioContext - Optional scenario description (e.g., "ordering at a restaurant")
- * @returns The complete system prompt string
+ * (Backwards compatible with existing code)
  */
 export function buildSystemPrompt(
   targetLanguage: string,
@@ -140,19 +108,22 @@ You MUST respond with a valid JSON object. No markdown, no code fences, just pur
       "explanation": "explanation in ${nativeName}",
       "example": "correct usage example"
     }
-  ]
+  ],
+  "suggestions": ["suggested reply 1 in ${targetName}", "suggested reply 2 in ${targetName}"]
 }
 
 ## RULES
 1. "reply" is ALWAYS in ${targetName}. Never in ${nativeName}.
 2. "translatedReply" is ALWAYS in ${nativeName}. This helps the learner understand your response.
-3. "corrections" — only include if the user made actual mistakes. Empty array [] if no mistakes.
-4. "vocabularyItems" — include 1-2 useful words from this exchange. Maximum 3. Empty array [] if none.
+3. "corrections" — ALWAYS check the user's message for mistakes. If they made ANY error, include it here. Empty array [] ONLY if no mistakes at all.
+4. "vocabularyItems" — include 1-3 useful words from this exchange. Maximum 3. Empty array [] if none.
 5. "grammarNotes" — include only if a grammar rule is relevant. Maximum 1. Empty array [] if none.
-6. Severity: "minor" = typo/small error, "moderate" = grammar error that changes meaning slightly, "major" = error that significantly changes meaning or is a fundamental mistake.
-7. NEVER include markdown formatting, code fences, or any text outside the JSON object.
-8. If the user says something inappropriate, respond politely in ${targetName} and redirect to the lesson. Set corrections to [] and include no vocabulary or grammar.
-9. Keep the conversation engaging — don't just correct, also respond naturally to what they said.
+6. "suggestions" — provide 2-3 short suggested replies in ${targetName} the student could use next. This helps beginners who don't know what to say.
+7. Severity: "minor" = typo/small error, "moderate" = grammar error that changes meaning slightly, "major" = error that significantly changes meaning or is a fundamental mistake.
+8. NEVER include markdown formatting, code fences, or any text outside the JSON object.
+9. If the user says something inappropriate, respond politely in ${targetName} and redirect to the lesson. Set corrections to [] and include no vocabulary or grammar.
+10. Keep the conversation engaging — don't just correct, also respond naturally to what they said.
+11. CRITICAL: The user is LEARNING. Even small mistakes like wrong gender agreement, missing accents, wrong verb conjugation, wrong word order — ALL of these should be corrected, especially for beginners.
 
 ## SAFETY
 - Never discuss harmful, illegal, or explicit topics.
@@ -160,25 +131,31 @@ You MUST respond with a valid JSON object. No markdown, no code fences, just pur
 - If the user asks non-language questions, gently redirect: "Let's keep practicing ${targetName}!"`;
 }
 
+/**
+ * Build a system prompt that instructs the AI to return structured JSON.
+ * Alias for buildSystemPrompt — used by the multi-provider system.
+ */
+export function buildLanguageTutorSystemPrompt(user: {
+  name?: string;
+  nativeLanguage?: string;
+  targetLanguage?: string | null;
+  proficiencyLevel?: string;
+}): string {
+  const targetLang = user.targetLanguage || "Spanish";
+  const nativeLang = user.nativeLanguage || "English";
+  const level = (user.proficiencyLevel || "beginner") as ProficiencyLevel;
+  const userName = user.name || "Student";
+
+  return (
+    buildSystemPrompt(targetLang, nativeLang, level) +
+    `\n\nThe student's name is ${userName}. Address them by name occasionally.`
+  );
+}
+
 // ═══════════════════════════════════════════
 // 2. RESPONSE PARSER
 // ═══════════════════════════════════════════
 
-/**
- * Parse the AI's raw text response into a structured ParsedAIResponse.
- *
- * WHY DO WE NEED A PARSER?
- * Gemini sometimes adds markdown code fences (```json ... ```)
- * or extra whitespace around the JSON. This parser handles all edge cases:
- *
- * 1. Pure JSON: {"reply": "...", ...}
- * 2. JSON in code fences: ```json\n{...}\n```
- * 3. JSON with leading/trailing whitespace
- * 4. Malformed JSON (fallback: treat entire response as reply text)
- *
- * The fallback is important — if the AI ever fails to produce valid JSON,
- * we don't crash. We just show the raw text as the reply.
- */
 export function parseAIResponse(rawText: string): ParsedAIResponse {
   const emptyResponse: ParsedAIResponse = {
     reply: "",
@@ -195,19 +172,16 @@ export function parseAIResponse(rawText: string): ParsedAIResponse {
   let jsonStr = rawText.trim();
 
   // Strip markdown code fences if present
-  // Some models wrap JSON in ```json ... ```
   const codeFenceMatch = jsonStr.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
   if (codeFenceMatch) {
     jsonStr = codeFenceMatch[1].trim();
   }
 
   // Try to find JSON object in the text
-  // Sometimes the model adds text before/after the JSON
   const jsonStart = jsonStr.indexOf("{");
   const jsonEnd = jsonStr.lastIndexOf("}");
 
   if (jsonStart === -1 || jsonEnd === -1 || jsonEnd < jsonStart) {
-    // No JSON found — treat entire text as reply
     console.warn("[AI Parser] No JSON object found in AI response. Using raw text as reply.");
     return {
       ...emptyResponse,
@@ -219,8 +193,6 @@ export function parseAIResponse(rawText: string): ParsedAIResponse {
 
   try {
     const parsed = JSON.parse(jsonStr);
-
-    // Validate and sanitize each field
     return {
       reply: typeof parsed.reply === "string" ? parsed.reply : "",
       translatedReply: typeof parsed.translatedReply === "string" ? parsed.translatedReply : "",
@@ -230,7 +202,6 @@ export function parseAIResponse(rawText: string): ParsedAIResponse {
     };
   } catch (error) {
     console.error("[AI Parser] Failed to parse AI JSON response:", error);
-    // Fallback: use the raw text as the reply
     return {
       ...emptyResponse,
       reply: rawText.trim(),
@@ -238,20 +209,8 @@ export function parseAIResponse(rawText: string): ParsedAIResponse {
   }
 }
 
-/**
- * Parse and validate the corrections array.
- *
- * WHY VALIDATE? The AI might return malformed corrections:
- * - Missing fields
- * - Wrong types (number instead of string)
- * - Invalid severity values
- *
- * We validate each correction and only keep valid ones.
- * This prevents the UI from breaking on bad data.
- */
 function parseCorrections(raw: unknown): Correction[] {
   if (!Array.isArray(raw)) return [];
-
   return raw
     .filter((c): c is Record<string, unknown> => typeof c === "object" && c !== null)
     .map((c) => ({
@@ -260,17 +219,13 @@ function parseCorrections(raw: unknown): Correction[] {
       explanation: String(c.explanation || ""),
       severity: ["minor", "moderate", "major"].includes(c.severity as string)
         ? (c.severity as "minor" | "moderate" | "major")
-        : "moderate", // Default to moderate if invalid
+        : "moderate",
     }))
-    .filter((c) => c.original && c.corrected); // Must have both original and corrected
+    .filter((c) => c.original && c.corrected);
 }
 
-/**
- * Parse and validate the vocabulary items array.
- */
 function parseVocabularyItems(raw: unknown): VocabularyExtraction[] {
   if (!Array.isArray(raw)) return [];
-
   return raw
     .filter((v): v is Record<string, unknown> => typeof v === "object" && v !== null)
     .map((v) => ({
@@ -280,15 +235,11 @@ function parseVocabularyItems(raw: unknown): VocabularyExtraction[] {
       partOfSpeech: String(v.partOfSpeech || ""),
       exampleSentence: String(v.exampleSentence || ""),
     }))
-    .filter((v) => v.word && v.translation); // Must have at least word and translation
+    .filter((v) => v.word && v.translation);
 }
 
-/**
- * Parse and validate the grammar notes array.
- */
 function parseGrammarNotes(raw: unknown): GrammarNote[] {
   if (!Array.isArray(raw)) return [];
-
   return raw
     .filter((g): g is Record<string, unknown> => typeof g === "object" && g !== null)
     .map((g) => ({
@@ -296,25 +247,284 @@ function parseGrammarNotes(raw: unknown): GrammarNote[] {
       explanation: String(g.explanation || ""),
       example: String(g.example || ""),
     }))
-    .filter((g) => g.rule && g.explanation); // Must have rule and explanation
+    .filter((g) => g.rule && g.explanation);
 }
 
 // ═══════════════════════════════════════════
-// 3. GEMINI ADAPTER (AIProvider implementation)
+// 3. MULTI-PROVIDER SYSTEM
+// ═══════════════════════════════════════════
+
+interface SimpleAIMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+interface SimpleAIResponse {
+  content: string;
+  provider: string;
+  model: string;
+  usage?: {
+    promptTokens?: number;
+    completionTokens?: number;
+    totalTokens?: number;
+  };
+}
+
+interface ProviderConfig {
+  name: string;
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+  maxTokens: number;
+}
+
+function getProviderConfigs(): ProviderConfig[] {
+  const configs: ProviderConfig[] = [];
+
+  // 1. Groq — Ultra-fast, free, OpenAI-compatible
+  const groqKey = process.env.GROQ_API_KEY;
+  if (groqKey) {
+    configs.push({
+      name: "groq",
+      apiKey: groqKey,
+      baseUrl: "https://api.groq.com/openai/v1",
+      model: "llama-3.3-70b-versatile",
+      maxTokens: 2048,
+    });
+  }
+
+  // 2. xAI (Grok) — OpenAI-compatible
+  const xaiKey = process.env.XAI_API_KEY;
+  if (xaiKey) {
+    configs.push({
+      name: "xai",
+      apiKey: xaiKey,
+      baseUrl: "https://api.x.ai/v1",
+      model: "grok-3-mini-fast",
+      maxTokens: 2048,
+    });
+  }
+
+  // 3. OpenAI — May be geo-blocked from some regions but works from Vercel
+  const openaiKey = process.env.OPENAI_API_KEY;
+  if (openaiKey) {
+    configs.push({
+      name: "openai",
+      apiKey: openaiKey,
+      baseUrl: "https://api.openai.com/v1",
+      model: "gpt-4o-mini",
+      maxTokens: 2048,
+    });
+  }
+
+  // 4. Gemini — Native API (last resort)
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (geminiKey) {
+    configs.push({
+      name: "gemini",
+      apiKey: geminiKey,
+      baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+      model: "gemini-2.0-flash",
+      maxTokens: 2048,
+    });
+  }
+
+  return configs;
+}
+
+// OpenAI-compatible provider call (Groq, xAI, OpenAI)
+// KEY: Uses response_format: { type: "json_object" } to force JSON output
+async function callOpenAICompatible(
+  config: ProviderConfig,
+  messages: SimpleAIMessage[]
+): Promise<SimpleAIResponse> {
+  const response = await fetch(`${config.baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${config.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: config.model,
+      messages,
+      max_tokens: config.maxTokens,
+      temperature: 0.7,
+      response_format: { type: "json_object" },
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "Unknown error");
+    throw new Error(`${config.name} API error (${response.status}): ${errorText}`);
+  }
+
+  const data = await response.json();
+  const choice = data.choices?.[0];
+
+  if (!choice?.message?.content) {
+    throw new Error(`${config.name} returned empty response`);
+  }
+
+  return {
+    content: choice.message.content,
+    provider: config.name,
+    model: config.model,
+    usage: data.usage
+      ? {
+          promptTokens: data.usage.prompt_tokens,
+          completionTokens: data.usage.completion_tokens,
+          totalTokens: data.usage.total_tokens,
+        }
+      : undefined,
+  };
+}
+
+// Gemini native API call
+async function callGemini(
+  config: ProviderConfig,
+  messages: SimpleAIMessage[]
+): Promise<SimpleAIResponse> {
+  const contents = messages
+    .filter((m) => m.role !== "system")
+    .map((m) => ({
+      role: m.role === "assistant" ? "model" : "user",
+      parts: [{ text: m.content }],
+    }));
+
+  const systemMessage = messages.find((m) => m.role === "system");
+
+  const body: Record<string, unknown> = {
+    contents,
+    generationConfig: {
+      maxOutputTokens: config.maxTokens,
+      temperature: 0.7,
+      responseMimeType: "application/json",
+    },
+  };
+
+  if (systemMessage) {
+    body.systemInstruction = {
+      parts: [{ text: systemMessage.content }],
+    };
+  }
+
+  const response = await fetch(
+    `${config.baseUrl}/models/${config.model}:generateContent?key=${config.apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(GEMINI_LIMITS.REQUEST_TIMEOUT_MS),
+    }
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "Unknown error");
+    throw new Error(`Gemini API error (${response.status}): ${errorText}`);
+  }
+
+  const data = await response.json();
+  const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+  if (!content) {
+    const blockReason = data?.promptFeedback?.blockReason;
+    if (blockReason) {
+      throw new Error(`AI response blocked: ${blockReason}`);
+    }
+    throw new Error("Gemini returned empty response");
+  }
+
+  return {
+    content,
+    provider: config.name,
+    model: config.model,
+    usage: data.usageMetadata
+      ? {
+          promptTokens: data.usageMetadata.promptTokenCount,
+          completionTokens: data.usageMetadata.candidatesTokenCount,
+          totalTokens: data.usageMetadata.totalTokenCount,
+        }
+      : undefined,
+  };
+}
+
+// ═══════════════════════════════════════════
+// 4. MAIN: SEND MESSAGE WITH AUTO-FALLBACK
 // ═══════════════════════════════════════════
 
 /**
- * The Gemini provider — implements the AIProvider interface.
+ * Send a message to the AI with automatic provider fallback.
+ * Tries providers in order: Groq → xAI → OpenAI → Gemini
+ * If one fails, it tries the next.
  *
- * HOW IT WORKS:
- * 1. Takes the AIChatContext (system prompt, history, user message)
- * 2. Formats it into Gemini's expected API format
- * 3. Calls the Gemini API
- * 4. Parses the response using parseAIResponse()
- * 5. Returns a clean ParsedAIResponse
- *
- * IMPORTANT: The API key is NEVER exposed to the client.
- * This code only runs on the server (inside API routes).
+ * This is the main entry point — returns raw content (may be JSON).
+ */
+export async function sendMessage(
+  messages: SimpleAIMessage[],
+  user?: Partial<AppUser> | null
+): Promise<SimpleAIResponse> {
+  // Build system prompt if not already present
+  const hasSystemPrompt = messages.some((m) => m.role === "system");
+  const allMessages = hasSystemPrompt
+    ? messages
+    : [
+        {
+          role: "system" as const,
+          content: buildLanguageTutorSystemPrompt({
+            name: user?.name,
+            nativeLanguage: user?.nativeLanguage,
+            targetLanguage: user?.targetLanguage,
+            proficiencyLevel: user?.proficiencyLevel,
+          }),
+        },
+        ...messages,
+      ];
+
+  const configs = getProviderConfigs();
+
+  if (configs.length === 0) {
+    throw new Error(
+      "No AI providers configured. Please set at least one API key (GROQ_API_KEY, XAI_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY)."
+    );
+  }
+
+  const errors: string[] = [];
+
+  for (const config of configs) {
+    try {
+      console.log(`[AI] Trying ${config.name} (${config.model})...`);
+
+      const result =
+        config.name === "gemini"
+          ? await callGemini(config, allMessages)
+          : await callOpenAICompatible(config, allMessages);
+
+      console.log(`[AI] ✅ ${config.name} succeeded (${result.usage?.totalTokens ?? "?"} tokens)`);
+      return result;
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      console.warn(`[AI] ❌ ${config.name} failed: ${errMsg}`);
+      errors.push(`${config.name}: ${errMsg}`);
+    }
+  }
+
+  throw new Error(`All AI providers failed:\n${errors.join("\n")}`);
+}
+
+/**
+ * Check which providers are available (have API keys configured).
+ */
+export function getAvailableProviders(): string[] {
+  return getProviderConfigs().map((c) => c.name);
+}
+
+// ═══════════════════════════════════════════
+// 5. BACKWARDS COMPATIBLE: AIProvider INTERFACE
+// ═══════════════════════════════════════════
+
+/**
+ * The GeminiProvider class — implements the AIProvider interface
+ * for backwards compatibility with existing code that uses getAIProvider().chat()
  */
 class GeminiProvider implements AIProvider {
   name = "gemini";
@@ -323,8 +533,6 @@ class GeminiProvider implements AIProvider {
 
   constructor() {
     this.apiKey = process.env.GEMINI_API_KEY || "";
-    // Gemini 2.0 Flash — free tier model (10 RPM, 1,500 RPD)
-    // Use "gemini-2.5-flash-preview-05-20" when available in your region
     this.model = "gemini-2.0-flash";
 
     if (!this.apiKey) {
@@ -337,20 +545,16 @@ class GeminiProvider implements AIProvider {
       throw new Error("GEMINI_API_KEY is not configured");
     }
 
-    // Build the messages array for Gemini's format
-    // Gemini uses "contents" array with "user" and "model" roles
     const contents = context.history.map((msg) => ({
       role: msg.role === "assistant" ? "model" : "user",
       parts: [{ text: msg.content }],
     }));
 
-    // Add the current user message
     contents.push({
       role: "user",
       parts: [{ text: context.userMessage }],
     });
 
-    // Call the Gemini API
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`;
 
     const response = await fetch(url, {
@@ -362,13 +566,13 @@ class GeminiProvider implements AIProvider {
           parts: [{ text: context.systemPrompt }],
         },
         generationConfig: {
-          temperature: 0.7, // Slightly creative but not random
+          temperature: 0.7,
           topP: 0.95,
           topK: 40,
-          maxOutputTokens: 2048, // Enough for JSON response
+          maxOutputTokens: 2048,
+          responseMimeType: "application/json",
         },
         safetySettings: [
-          // Block harmful content
           { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
           { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
           { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
@@ -384,13 +588,9 @@ class GeminiProvider implements AIProvider {
     }
 
     const data = await response.json();
-
-    // Extract the text from Gemini's response format
-    // Gemini returns: { candidates: [{ content: { parts: [{ text: "..." }] } }] }
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
 
     if (!text) {
-      // Could be blocked by safety filters
       const blockReason = data?.promptFeedback?.blockReason;
       if (blockReason) {
         throw new Error(`AI response blocked: ${blockReason}`);
@@ -398,35 +598,46 @@ class GeminiProvider implements AIProvider {
       throw new Error("AI returned an empty response");
     }
 
-    // Parse the structured JSON from the AI's text response
     return parseAIResponse(text);
   }
 }
 
-// ═══════════════════════════════════════════
-// 4. PROVIDER FACTORY (Singleton)
-// ═══════════════════════════════════════════
+// Multi-provider adapter that uses sendMessage() with fallback
+class FallbackProvider implements AIProvider {
+  name = "multi-provider";
+
+  async chat(context: AIChatContext): Promise<ParsedAIResponse> {
+    const messages: SimpleAIMessage[] = [
+      { role: "system", content: context.systemPrompt },
+      ...context.history.map((m) => ({
+        role: m.role as "user" | "assistant",
+        content: m.content,
+      })),
+      { role: "user", content: context.userMessage },
+    ];
+
+    const result = await sendMessage(messages, {
+      nativeLanguage: context.nativeLanguage,
+      targetLanguage: context.targetLanguage,
+      proficiencyLevel: context.proficiencyLevel,
+    });
+
+    // Try to parse as structured JSON, fallback to plain text
+    return parseAIResponse(result.content);
+  }
+}
+
+// Provider factory (backwards compatible)
+let providerInstance: AIProvider | null = null;
 
 /**
  * Get the current AI provider instance.
- *
- * WHY A FACTORY FUNCTION?
- * - We might want to switch providers based on env vars
- * - We might want to add OpenAI later: just add a case here
- * - The rest of the app calls `getAIProvider()` — never new GeminiProvider()
- *
- * WHY SINGLETON?
- * - We don't want to create a new provider instance on every request
- * - The provider is stateless (no conversation memory) — safe to reuse
+ * Now uses multi-provider with fallback instead of Gemini-only.
  */
-let providerInstance: AIProvider | null = null;
-
 export function getAIProvider(): AIProvider {
   if (!providerInstance) {
-    // For now, we only have Gemini. In the future:
-    // const providerType = process.env.AI_PROVIDER || "gemini";
-    // switch (providerType) { case "openai": ... case "gemini": ... }
-    providerInstance = new GeminiProvider();
+    // Use the multi-provider fallback system
+    providerInstance = new FallbackProvider();
   }
   return providerInstance;
 }

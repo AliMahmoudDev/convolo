@@ -1,18 +1,9 @@
 /**
  * GET /api/conversations/[id] — Fetch a conversation with all its messages
- *
- * Used when the user opens or refreshes the conversation page.
- * Returns: conversation metadata + all messages with corrections/vocabulary.
- *
  * POST /api/conversations/[id] — End a conversation and get summary
  *
- * Flow:
- * 1. Verify user is authenticated
- * 2. Verify conversation exists, belongs to user, and is active
- * 3. Mark conversation as completed
- * 4. Calculate session summary (score, corrections, vocabulary, duration)
- * 5. Update user progress
- * 6. Return summary
+ * Uses Supabase JS Client (PostgREST over HTTPS).
+ * Column names use camelCase as returned by PostgREST.
  */
 
 import { NextRequest } from "next/server";
@@ -35,33 +26,31 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
       return errorResponse("UNAUTHORIZED", "Please log in", 401);
     }
 
-    // 2. Get or create user's DB record (auto-provisioning)
+    // 2. Get or create user's DB record
     const dbUser = await getOrCreateUser(user);
 
-    // 3. Fetch conversation with all messages
-    const conversation = await db.conversation.findUnique({
-      where: { id: conversationId },
-      include: {
-        messages: {
-          orderBy: { createdAt: "asc" },
-          select: {
-            id: true,
-            role: true,
-            content: true,
-            contentTranslated: true,
-            corrections: true,
-            vocabularyItems: true,
-            grammarNotes: true,
-            createdAt: true,
-          },
-        },
-        scenario: {
-          select: { title: true, description: true },
-        },
-      },
-    });
+    // 3. Fetch conversation
+    const { data: conversation, error: convError } = await db
+      .from("conversations")
+      .select(
+        `
+        id,
+        userId,
+        languagePair,
+        difficultyLevel,
+        status,
+        startedAt,
+        endedAt,
+        messageCount,
+        overallScore,
+        scenarioId,
+        scenario:scenarios(title, description)
+      `
+      )
+      .eq("id", conversationId)
+      .maybeSingle();
 
-    if (!conversation) {
+    if (convError || !conversation) {
       return errorResponse("NOT_FOUND", "Conversation not found", 404);
     }
 
@@ -69,18 +58,32 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
       return errorResponse("FORBIDDEN", "You don't have access to this conversation", 403);
     }
 
-    // 4. Calculate duration for active conversations
-    const durationMs = conversation.endedAt
-      ? conversation.endedAt.getTime() - conversation.startedAt.getTime()
-      : Date.now() - conversation.startedAt.getTime();
+    // 4. Fetch messages
+    const { data: messages, error: msgError } = await db
+      .from("messages")
+      .select(
+        "id, role, content, contentTranslated, corrections, vocabularyItems, grammarNotes, createdAt"
+      )
+      .eq("conversationId", conversationId)
+      .order("createdAt", { ascending: true });
+
+    if (msgError) {
+      console.error("[Conversation GET] Messages fetch error:", msgError);
+      return errorResponse("INTERNAL_ERROR", "Failed to load messages", 500);
+    }
+
+    // 5. Calculate duration for active conversations
+    const startedAt = new Date(conversation.startedAt);
+    const endedAt = conversation.endedAt ? new Date(conversation.endedAt) : new Date();
+    const durationMs = endedAt.getTime() - startedAt.getTime();
     const durationMinutes = Math.round(durationMs / 60000);
 
-    // 5. Count total corrections and vocabulary for the sidebar
+    // 6. Count total corrections and vocabulary
     let totalCorrections = 0;
     let totalVocabulary = 0;
     const uniqueWords: string[] = [];
 
-    for (const msg of conversation.messages) {
+    for (const msg of messages || []) {
       if (msg.role === "assistant") {
         const corrections = msg.corrections as unknown[];
         const vocabulary = msg.vocabularyItems as unknown[];
@@ -99,21 +102,21 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
       }
     }
 
-    // 6. Return conversation data
+    // 7. Return conversation data
     return successResponse({
       id: conversation.id,
       languagePair: conversation.languagePair,
       difficultyLevel: conversation.difficultyLevel,
       status: conversation.status,
-      startedAt: conversation.startedAt.toISOString(),
-      endedAt: conversation.endedAt?.toISOString() ?? null,
+      startedAt: conversation.startedAt,
+      endedAt: conversation.endedAt ?? null,
       durationMinutes: Math.max(1, durationMinutes),
       messageCount: conversation.messageCount,
       overallScore: conversation.overallScore,
       scenario: conversation.scenario,
       totalCorrections,
       totalVocabulary,
-      messages: conversation.messages.map((msg) => ({
+      messages: (messages || []).map((msg) => ({
         id: msg.id,
         role: msg.role,
         content: msg.content,
@@ -121,7 +124,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
         corrections: msg.corrections,
         vocabularyItems: msg.vocabularyItems,
         grammarNotes: msg.grammarNotes,
-        createdAt: msg.createdAt.toISOString(),
+        createdAt: msg.createdAt,
       })),
     });
   } catch (error) {
@@ -144,20 +147,17 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
       return errorResponse("UNAUTHORIZED", "Please log in", 401);
     }
 
-    // 2. Get or create user's DB record (auto-provisioning)
+    // 2. Get or create user's DB record
     const dbUser = await getOrCreateUser(user);
 
     // 3. Verify conversation
-    const conversation = await db.conversation.findUnique({
-      where: { id: conversationId },
-      include: {
-        messages: {
-          select: { role: true, corrections: true, vocabularyItems: true },
-        },
-      },
-    });
+    const { data: conversation, error: convError } = await db
+      .from("conversations")
+      .select("id, userId, languagePair, status, startedAt, difficultyLevel")
+      .eq("id", conversationId)
+      .maybeSingle();
 
-    if (!conversation) {
+    if (convError || !conversation) {
       return errorResponse("NOT_FOUND", "Conversation not found", 404);
     }
 
@@ -169,9 +169,16 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
       return errorResponse("VALIDATION_ERROR", "This conversation has already ended");
     }
 
-    // 4. Calculate summary
+    // 4. Fetch messages for summary calculation
+    const { data: messages } = await db
+      .from("messages")
+      .select("role, corrections, vocabularyItems")
+      .eq("conversationId", conversationId);
+
+    // 5. Calculate summary
     const endedAt = new Date();
-    const durationMs = endedAt.getTime() - conversation.startedAt.getTime();
+    const startedAt = new Date(conversation.startedAt);
+    const durationMs = endedAt.getTime() - startedAt.getTime();
     const durationMinutes = Math.round(durationMs / 60000);
 
     // Count corrections from AI messages
@@ -179,7 +186,7 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
     let newVocabularyCount = 0;
     const vocabularyWords: string[] = [];
 
-    for (const msg of conversation.messages) {
+    for (const msg of messages || []) {
       if (msg.role === "assistant") {
         const corrections = msg.corrections as unknown[];
         const vocabulary = msg.vocabularyItems as unknown[];
@@ -199,30 +206,51 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
     }
 
     // Calculate score based on corrections vs messages
-    // Fewer corrections = higher score
-    const userMessageCount = conversation.messages.filter((m) => m.role === "user").length;
+    const userMessageCount = (messages || []).filter((m) => m.role === "user").length;
     const correctionsRatio = userMessageCount > 0 ? correctionsCount / userMessageCount : 0;
     const overallScore = Math.max(0, Math.min(100, Math.round(100 - correctionsRatio * 20)));
 
     const scoreRating = getScoreRating(overallScore);
 
-    // 5. Mark conversation as completed
-    await db.conversation.update({
-      where: { id: conversationId },
-      data: {
-        status: "completed",
-        endedAt,
-        overallScore,
-        messageCount: conversation.messages.length,
-      },
-    });
+    const totalMessages = (messages || []).length;
+    const now = endedAt.toISOString();
 
-    // 6. Update user progress (upsert)
-    await db.userProgress.upsert({
-      where: {
-        userId_languagePair: { userId: dbUser.id, languagePair: conversation.languagePair },
-      },
-      create: {
+    // 6. Mark conversation as completed
+    await db
+      .from("conversations")
+      .update({
+        status: "completed",
+        endedAt: now,
+        overallScore,
+        messageCount: totalMessages,
+      })
+      .eq("id", conversationId);
+
+    // 7. Update user progress (upsert pattern)
+    const { data: existingProgress } = await db
+      .from("user_progress")
+      .select("*")
+      .eq("userId", dbUser.id)
+      .eq("languagePair", conversation.languagePair)
+      .maybeSingle();
+
+    if (existingProgress) {
+      await db
+        .from("user_progress")
+        .update({
+          totalConversations: existingProgress.totalConversations + 1,
+          totalMessages: existingProgress.totalMessages + userMessageCount,
+          totalMinutes: existingProgress.totalMinutes + durationMinutes,
+          totalWordsLearned: existingProgress.totalWordsLearned + newVocabularyCount,
+          totalCorrections: existingProgress.totalCorrections + correctionsCount,
+          lastPracticeAt: now,
+          xpPoints: existingProgress.xpPoints + overallScore,
+          updatedAt: now,
+        })
+        .eq("id", existingProgress.id);
+    } else {
+      await db.from("user_progress").insert({
+        id: crypto.randomUUID(),
         userId: dbUser.id,
         languagePair: conversation.languagePair,
         totalConversations: 1,
@@ -233,25 +261,19 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
         avgScore: overallScore,
         currentStreak: 1,
         longestStreak: 1,
-        lastPracticeAt: endedAt,
+        lastPracticeAt: now,
+        levelProgress: 0,
         xpPoints: overallScore,
-      },
-      update: {
-        totalConversations: { increment: 1 },
-        totalMessages: { increment: userMessageCount },
-        totalMinutes: { increment: durationMinutes },
-        totalWordsLearned: { increment: newVocabularyCount },
-        totalCorrections: { increment: correctionsCount },
-        lastPracticeAt: endedAt,
-        xpPoints: { increment: overallScore },
-      },
-    });
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
 
-    // 7. Return summary
+    // 8. Return summary
     return successResponse({
       overallScore,
       scoreRating,
-      totalMessages: conversation.messages.length,
+      totalMessages,
       correctionsCount,
       newVocabularyCount,
       durationMinutes: Math.max(1, durationMinutes),
