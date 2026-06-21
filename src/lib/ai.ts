@@ -124,17 +124,18 @@ You MUST respond with a valid JSON object. No markdown, no code fences, just pur
 1. "reply" is ALWAYS in ${targetName}. Never in ${nativeName}.
 2. "translatedReply" is ALWAYS in ${nativeName}. This helps the learner understand your response.
 3. "corrections" — ONLY for REAL ERRORS (wrong grammar, wrong word, wrong conjugation, etc.). If the user's message is PERFECT with NO mistakes, return an EMPTY array []. Do NOT add a correction like "No correction needed" or "No errors" — just return []. Only include REAL corrections where the original text was actually wrong and needed fixing.
-4. "hints" — Style suggestions that are NOT errors. For example: missing apostrophes in contractions ("Iam" → "I'm"), punctuation improvements, more natural phrasing alternatives, or writing conventions. These are things the user could improve but aren't strictly wrong. Empty array [] if none.
+4. "hints" — Style suggestions that are NOT errors and truly help the learner. For example: more natural phrasing alternatives ("I am happy" → "I'm happy" for casual speech), better word choices ("very big" → "huge"), or register improvements. Do NOT flag apostrophe/punctuation differences — these are typing style, not language learning issues. Empty array [] if none.
 5. "vocabularyItems" — include 1-3 useful words from this exchange. Maximum 3. Empty array [] if none.
 6. "grammarNotes" — include only if a grammar rule is relevant. Maximum 1. Empty array [] if none.
 7. "suggestions" — provide 2-3 short suggested replies in ${targetName} the student could use next. This helps beginners who don't know what to say.
 8. Severity: "minor" = typo/small error, "moderate" = grammar error that changes meaning slightly, "major" = error that significantly changes meaning or is a fundamental mistake.
-9. IMPORTANT: Know the difference between a correction and a hint:
-   - "Iam happy" → "I'm happy" is a HINT (missing apostrophe in contraction, meaning is clear)
+9. IMPORTANT: Know the difference between corrections, hints, and things to ignore:
    - "I are happy" → "I am happy" is a CORRECTION (wrong grammar)
    - "She dont know" → "She doesn't know" is a CORRECTION (wrong grammar)
-   - "Im going" → "I'm going" is a HINT (missing apostrophe)
-   - If the user uses informal/shortened forms naturally, don't flag them at all.
+   - "Iam" or "Im" → "I'm" — IGNORE completely! This is just a typing style difference (apostrophe missing). Do NOT put it in corrections OR hints. The meaning is perfectly clear.
+   - "I am happy" → "I'm happy" can be a HINT (informal/casual form is more natural in conversation)
+   - "very big" → "huge" can be a HINT (better vocabulary choice)
+   - NEVER flag missing apostrophes in contractions as either corrections or hints. They are typing preferences, not language errors.
 10. CRITICAL: ONLY correct the user's CURRENT/LATEST message. NEVER re-correct mistakes from previous messages that were already corrected. Each response should only check the most recent user message.
 11. NEVER include markdown formatting, code fences, or any text outside the JSON object.
 12. If the user says something inappropriate, respond politely in ${targetName} and redirect to the lesson. Set corrections to [] and include no vocabulary or grammar.
@@ -216,29 +217,20 @@ export function parseAIResponse(rawText: string): ParsedAIResponse {
     const rawCorrections = parseCorrections(parsed.corrections);
     const rawHints = parseHints(parsed.hints);
 
-    // SMART CLASSIFICATION: Move corrections that are actually style hints
-    // (apostrophe differences, capitalization, punctuation) to the hints array
-    const realCorrections: Correction[] = [];
-    const promotedHints: Hint[] = [];
-
-    for (const c of rawCorrections) {
-      if (isStyleHint(c.original, c.corrected)) {
-        // This is a style hint, not a real error → move it to hints
-        promotedHints.push({
-          original: c.original,
-          suggested: c.corrected,
-          explanation: c.explanation,
-        });
-      } else {
-        realCorrections.push(c);
-      }
-    }
+    // SMART FILTER: Remove corrections/hints that are just typing style
+    // (apostrophe differences, capitalization) — not worth showing
+    const realCorrections = rawCorrections.filter(
+      (c) => !shouldIgnoreCorrection(c.original, c.corrected)
+    );
+    const realHints = rawHints.filter(
+      (h) => !shouldIgnoreCorrection(h.original, h.suggested)
+    );
 
     return {
       reply: typeof parsed.reply === "string" ? parsed.reply : "",
       translatedReply: typeof parsed.translatedReply === "string" ? parsed.translatedReply : "",
       corrections: realCorrections,
-      hints: [...promotedHints, ...rawHints],
+      hints: realHints,
       vocabularyItems: parseVocabularyItems(parsed.vocabularyItems),
       grammarNotes: parseGrammarNotes(parsed.grammarNotes),
       suggestions: parseSuggestions(parsed.suggestions),
@@ -290,11 +282,12 @@ function parseCorrections(raw: unknown): Correction[] {
 }
 
 /**
- * Check if a correction is actually just a style hint (not a real error).
- * Apostrophe/contraction differences, punctuation, capitalization-only
- * changes are NOT real errors — they're hints.
+ * Check if a correction should be COMPLETELY IGNORED.
+ * Apostrophe/contraction differences are just typing style —
+ * not errors, not even hints. The meaning is perfectly clear.
+ * Also ignores capitalization-only differences.
  */
-function isStyleHint(original: string, corrected: string): boolean {
+function shouldIgnoreCorrection(original: string, corrected: string): boolean {
   const orig = original.trim();
   const corr = corrected.trim();
 
@@ -304,12 +297,12 @@ function isStyleHint(original: string, corrected: string): boolean {
   }
 
   // Remove all apostrophes, hyphens, and lowercase everything
-  // If they're the same after that, it's just a punctuation/style difference
+  // If they're the same after that, it's just an apostrophe/punctuation difference
   const normalize = (s: string) =>
     s.toLowerCase().replace(/[''`ʼ‛-]/g, "").replace(/\s+/g, " ").trim();
 
   if (normalize(orig) === normalize(corr)) {
-    return true; // Only difference is apostrophe/punctuation/spaces
+    return true; // Only difference is apostrophe/punctuation — IGNORE
   }
 
   // Split into words and check word-by-word
@@ -318,17 +311,16 @@ function isStyleHint(original: string, corrected: string): boolean {
   const corrWords = corr.split(/\s+/);
 
   if (origWords.length === corrWords.length) {
-    let allWordsAreStyleOnly = true;
+    let allWordsAreTypingOnly = true;
     for (let i = 0; i < origWords.length; i++) {
       const ow = origWords[i].toLowerCase().replace(/[''`ʼ‛-]/g, "");
       const cw = corrWords[i].toLowerCase().replace(/[''`ʼ‛-]/g, "");
 
       if (ow === cw) {
-        // Same word after removing apostrophes — style difference only
-        continue;
+        continue; // Same word after removing apostrophes
       }
 
-      // Check if it's a contraction without apostrophe: "iam" → "im", "dont" → "dont"
+      // Contraction without apostrophe: "iam" normalizes to "im"
       const contractionMap: Record<string, string> = {
         "iam": "im", "im": "im", "ive": "ive", "id": "id", "ill": "ill",
         "youre": "youre", "youve": "youve", "youll": "youll", "youd": "youd",
@@ -341,26 +333,18 @@ function isStyleHint(original: string, corrected: string): boolean {
         "mustnt": "mustnt", "lets": "lets", "whos": "whos", "whats": "whats",
       };
 
-      const owNormalized = contractionMap[ow] || ow;
-      const cwNormalized = contractionMap[cw] || cw;
+      const owNorm = contractionMap[ow] || ow;
+      const cwNorm = contractionMap[cw] || cw;
 
-      if (owNormalized !== cwNormalized) {
-        allWordsAreStyleOnly = false;
+      if (owNorm !== cwNorm) {
+        allWordsAreTypingOnly = false;
         break;
       }
     }
 
-    if (allWordsAreStyleOnly) {
-      return true;
+    if (allWordsAreTypingOnly) {
+      return true; // All differences are just apostrophe/typing style — IGNORE
     }
-  }
-
-  // Single-word contraction pattern check
-  const contractionPattern = /^(im|ive|id|ill|youre|youve|youll|youd|hes|shes|its|were|theyre|theyve|theyll|theyd|dont|doesnt|didnt|wont|wouldnt|couldnt|shouldnt|isnt|arent|wasnt|werent|havent|hasnt|hadnt|cant|mustnt|lets|whos|whats|wheres|whens|whys|hows|iam)$/i;
-  const origClean = orig.replace(/[^a-zA-Z]/g, "");
-  const corrClean = corr.replace(/[^a-zA-Z]/g, "");
-  if (contractionPattern.test(origClean) || contractionPattern.test(corrClean)) {
-    return true;
   }
 
   return false;
