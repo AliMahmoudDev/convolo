@@ -115,7 +115,7 @@ You MUST respond with a valid JSON object. No markdown, no code fences, just pur
 ## RULES
 1. "reply" is ALWAYS in ${targetName}. Never in ${nativeName}.
 2. "translatedReply" is ALWAYS in ${nativeName}. This helps the learner understand your response.
-3. "corrections" — ALWAYS check the user's message for mistakes. If they made ANY error, include it here. Empty array [] ONLY if no mistakes at all.
+3. "corrections" — ALWAYS check the user's message for mistakes. If they made ANY error, include it here. If the user's message is PERFECT with NO mistakes, return an EMPTY array []. Do NOT add a correction like "No correction needed" or "No errors" — just return []. Only include REAL corrections where the original text was actually wrong and needed fixing.
 4. "vocabularyItems" — include 1-3 useful words from this exchange. Maximum 3. Empty array [] if none.
 5. "grammarNotes" — include only if a grammar rule is relevant. Maximum 1. Empty array [] if none.
 6. "suggestions" — provide 2-3 short suggested replies in ${targetName} the student could use next. This helps beginners who don't know what to say.
@@ -223,7 +223,29 @@ function parseCorrections(raw: unknown): Correction[] {
         ? (c.severity as "minor" | "moderate" | "major")
         : "moderate",
     }))
-    .filter((c) => c.original && c.corrected);
+    .filter((c) => {
+      // Must have both original and corrected text
+      if (!c.original || !c.corrected) return false;
+      // Filter out fake corrections where original === corrected (no actual change)
+      if (c.original.trim().toLowerCase() === c.corrected.trim().toLowerCase()) return false;
+      // Filter out placeholder corrections like "No correction needed", "No errors", etc.
+      const noCorrectionPhrases = [
+        "no correction needed",
+        "no corrections needed",
+        "no errors",
+        "no error",
+        "no mistakes",
+        "correct",
+        "perfect",
+        "no change needed",
+        "n/a",
+        "none",
+      ];
+      const originalLower = c.original.trim().toLowerCase();
+      const correctedLower = c.corrected.trim().toLowerCase();
+      if (noCorrectionPhrases.some((phrase) => originalLower === phrase || correctedLower === phrase)) return false;
+      return true;
+    });
 }
 
 function parseVocabularyItems(raw: unknown): VocabularyExtraction[] {
