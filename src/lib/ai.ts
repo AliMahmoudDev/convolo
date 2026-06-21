@@ -162,6 +162,7 @@ export function parseAIResponse(rawText: string): ParsedAIResponse {
     corrections: [],
     vocabularyItems: [],
     grammarNotes: [],
+    suggestions: [],
     translatedReply: "",
   };
 
@@ -199,6 +200,7 @@ export function parseAIResponse(rawText: string): ParsedAIResponse {
       corrections: parseCorrections(parsed.corrections),
       vocabularyItems: parseVocabularyItems(parsed.vocabularyItems),
       grammarNotes: parseGrammarNotes(parsed.grammarNotes),
+      suggestions: parseSuggestions(parsed.suggestions),
     };
   } catch (error) {
     console.error("[AI Parser] Failed to parse AI JSON response:", error);
@@ -248,6 +250,14 @@ function parseGrammarNotes(raw: unknown): GrammarNote[] {
       example: String(g.example || ""),
     }))
     .filter((g) => g.rule && g.explanation);
+}
+
+function parseSuggestions(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((s): s is string => typeof s === "string" && s.trim().length > 0)
+    .map((s) => s.trim())
+    .slice(0, 5); // Max 5 suggestions
 }
 
 // ═══════════════════════════════════════════

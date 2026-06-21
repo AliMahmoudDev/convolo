@@ -210,7 +210,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       conversationId,
       role: "assistant",
       content: aiResponse.reply,
-      metadata: { provider: getAIProvider().name },
       createdAt: new Date().toISOString(),
     };
 
@@ -227,6 +226,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (aiResponse.grammarNotes && aiResponse.grammarNotes.length > 0) {
       messageData.grammarNotes = aiResponse.grammarNotes;
     }
+    // Store suggestions in metadata (no dedicated column yet)
+    const metadata: Record<string, unknown> = { provider: getAIProvider().name };
+    if (aiResponse.suggestions && aiResponse.suggestions.length > 0) {
+      metadata.suggestions = aiResponse.suggestions;
+    }
+    messageData.metadata = metadata;
 
     const { data: aiMessage } = await db.from("messages").insert(messageData).select().single();
 
@@ -281,6 +286,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         corrections: aiResponse.corrections || [],
         vocabularyItems: aiResponse.vocabularyItems || [],
         grammarNotes: aiResponse.grammarNotes || [],
+        suggestions: aiResponse.suggestions || [],
         role: "assistant",
         createdAt: aiMessage?.createdAt || new Date().toISOString(),
       },

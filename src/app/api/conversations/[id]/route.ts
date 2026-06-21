@@ -62,7 +62,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     const { data: messages, error: msgError } = await db
       .from("messages")
       .select(
-        "id, role, content, contentTranslated, corrections, vocabularyItems, grammarNotes, createdAt"
+        "id, role, content, contentTranslated, corrections, vocabularyItems, grammarNotes, metadata, createdAt"
       )
       .eq("conversationId", conversationId)
       .order("createdAt", { ascending: true });
@@ -116,16 +116,24 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
       scenario: conversation.scenario,
       totalCorrections,
       totalVocabulary,
-      messages: (messages || []).map((msg) => ({
-        id: msg.id,
-        role: msg.role,
-        content: msg.content,
-        translatedContent: msg.contentTranslated,
-        corrections: msg.corrections,
-        vocabularyItems: msg.vocabularyItems,
-        grammarNotes: msg.grammarNotes,
-        createdAt: msg.createdAt,
-      })),
+      messages: (messages || []).map((msg) => {
+        // Extract suggestions from metadata if available
+        const metadata = (msg.metadata || {}) as Record<string, unknown>;
+        const suggestions = Array.isArray(metadata.suggestions)
+          ? (metadata.suggestions as string[])
+          : [];
+        return {
+          id: msg.id,
+          role: msg.role,
+          content: msg.content,
+          translatedContent: msg.contentTranslated,
+          corrections: msg.corrections,
+          vocabularyItems: msg.vocabularyItems,
+          grammarNotes: msg.grammarNotes,
+          suggestions,
+          createdAt: msg.createdAt,
+        };
+      }),
     });
   } catch (error) {
     console.error("[Conversation GET] Unhandled error:", error);

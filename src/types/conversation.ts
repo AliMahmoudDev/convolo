@@ -61,6 +61,8 @@ export interface ParsedAIResponse {
   vocabularyItems: VocabularyExtraction[];
   /** Grammar notes relevant to this exchange */
   grammarNotes: GrammarNote[];
+  /** Suggested replies for the learner to use next */
+  suggestions: string[];
   /** A translation of the AI reply into the user's native language */
   translatedReply: string;
 }

@@ -42,6 +42,8 @@ export interface ChatMessageData {
   vocabularyItems?: VocabularyExtraction[];
   /** Grammar notes for this exchange (AI messages only) */
   grammarNotes?: GrammarNote[];
+  /** Suggestion chips for quick replies (AI messages only) */
+  suggestions?: string[];
   createdAt: string;
 }
 
@@ -208,7 +210,9 @@ export function useConversation(conversationId: string): UseConversationReturn {
         }
 
         // Replace optimistic user message with server version + add AI message
-        const { userMessage, aiMessage } = data.data;
+        // NOTE: API returns { userMessage, assistantMessage } — not aiMessage
+        const { userMessage, assistantMessage } = data.data;
+        const aiMsg = assistantMessage;
         setMessages((prev) => [
           // Remove the optimistic message
           ...prev.filter((m) => m.id !== optimisticUserMsg.id),
@@ -221,14 +225,15 @@ export function useConversation(conversationId: string): UseConversationReturn {
           },
           // Add the AI message
           {
-            id: aiMessage.id,
+            id: aiMsg.id,
             role: "assistant",
-            content: aiMessage.content,
-            translatedContent: aiMessage.translatedContent,
-            corrections: aiMessage.corrections || [],
-            vocabularyItems: aiMessage.vocabularyItems || [],
-            grammarNotes: aiMessage.grammarNotes || [],
-            createdAt: aiMessage.createdAt,
+            content: aiMsg.content,
+            translatedContent: aiMsg.translatedContent || null,
+            corrections: aiMsg.corrections || [],
+            vocabularyItems: aiMsg.vocabularyItems || [],
+            grammarNotes: aiMsg.grammarNotes || [],
+            suggestions: aiMsg.suggestions || [],
+            createdAt: aiMsg.createdAt,
           },
         ]);
       } catch (err) {
