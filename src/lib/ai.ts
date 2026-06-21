@@ -19,6 +19,7 @@ import type {
   AIChatContext,
   ParsedAIResponse,
   Correction,
+  Hint,
   VocabularyExtraction,
   GrammarNote,
 } from "@/types/conversation";
@@ -87,10 +88,17 @@ You MUST respond with a valid JSON object. No markdown, no code fences, just pur
   "translatedReply": "Translation of your reply in ${nativeName}",
   "corrections": [
     {
-      "original": "the exact text the user wrote that was wrong",
+      "original": "the exact text the user wrote that was WRONG",
       "corrected": "the correct version",
       "explanation": "Why it was wrong, explained in ${nativeName}",
       "severity": "minor|moderate|major"
+    }
+  ],
+  "hints": [
+    {
+      "original": "what the user wrote (not wrong, just could be better)",
+      "suggested": "a more natural/correct version",
+      "explanation": "Why this is better, explained in ${nativeName}"
     }
   ],
   "vocabularyItems": [
@@ -115,11 +123,18 @@ You MUST respond with a valid JSON object. No markdown, no code fences, just pur
 ## RULES
 1. "reply" is ALWAYS in ${targetName}. Never in ${nativeName}.
 2. "translatedReply" is ALWAYS in ${nativeName}. This helps the learner understand your response.
-3. "corrections" — ALWAYS check the user's message for mistakes. If they made ANY error, include it here. If the user's message is PERFECT with NO mistakes, return an EMPTY array []. Do NOT add a correction like "No correction needed" or "No errors" — just return []. Only include REAL corrections where the original text was actually wrong and needed fixing.
-4. "vocabularyItems" — include 1-3 useful words from this exchange. Maximum 3. Empty array [] if none.
-5. "grammarNotes" — include only if a grammar rule is relevant. Maximum 1. Empty array [] if none.
-6. "suggestions" — provide 2-3 short suggested replies in ${targetName} the student could use next. This helps beginners who don't know what to say.
-7. Severity: "minor" = typo/small error, "moderate" = grammar error that changes meaning slightly, "major" = error that significantly changes meaning or is a fundamental mistake.
+3. "corrections" — ONLY for REAL ERRORS (wrong grammar, wrong word, wrong conjugation, etc.). If the user's message is PERFECT with NO mistakes, return an EMPTY array []. Do NOT add a correction like "No correction needed" or "No errors" — just return []. Only include REAL corrections where the original text was actually wrong and needed fixing.
+4. "hints" — Style suggestions that are NOT errors. For example: missing apostrophes in contractions ("Iam" → "I'm"), punctuation improvements, more natural phrasing alternatives, or writing conventions. These are things the user could improve but aren't strictly wrong. Empty array [] if none.
+5. "vocabularyItems" — include 1-3 useful words from this exchange. Maximum 3. Empty array [] if none.
+6. "grammarNotes" — include only if a grammar rule is relevant. Maximum 1. Empty array [] if none.
+7. "suggestions" — provide 2-3 short suggested replies in ${targetName} the student could use next. This helps beginners who don't know what to say.
+8. Severity: "minor" = typo/small error, "moderate" = grammar error that changes meaning slightly, "major" = error that significantly changes meaning or is a fundamental mistake.
+9. IMPORTANT: Know the difference between a correction and a hint:
+   - "Iam happy" → "I'm happy" is a HINT (missing apostrophe in contraction, meaning is clear)
+   - "I are happy" → "I am happy" is a CORRECTION (wrong grammar)
+   - "She dont know" → "She doesn't know" is a CORRECTION (wrong grammar)
+   - "Im going" → "I'm going" is a HINT (missing apostrophe)
+   - If the user uses informal/shortened forms naturally, don't flag them at all.
 8. NEVER include markdown formatting, code fences, or any text outside the JSON object.
 9. If the user says something inappropriate, respond politely in ${targetName} and redirect to the lesson. Set corrections to [] and include no vocabulary or grammar.
 10. Keep the conversation engaging — don't just correct, also respond naturally to what they said.
@@ -160,6 +175,7 @@ export function parseAIResponse(rawText: string): ParsedAIResponse {
   const emptyResponse: ParsedAIResponse = {
     reply: "",
     corrections: [],
+    hints: [],
     vocabularyItems: [],
     grammarNotes: [],
     suggestions: [],
@@ -198,6 +214,7 @@ export function parseAIResponse(rawText: string): ParsedAIResponse {
       reply: typeof parsed.reply === "string" ? parsed.reply : "",
       translatedReply: typeof parsed.translatedReply === "string" ? parsed.translatedReply : "",
       corrections: parseCorrections(parsed.corrections),
+      hints: parseHints(parsed.hints),
       vocabularyItems: parseVocabularyItems(parsed.vocabularyItems),
       grammarNotes: parseGrammarNotes(parsed.grammarNotes),
       suggestions: parseSuggestions(parsed.suggestions),
@@ -246,6 +263,18 @@ function parseCorrections(raw: unknown): Correction[] {
       if (noCorrectionPhrases.some((phrase) => originalLower === phrase || correctedLower === phrase)) return false;
       return true;
     });
+}
+
+function parseHints(raw: unknown): Hint[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((h): h is Record<string, unknown> => typeof h === "object" && h !== null)
+    .map((h) => ({
+      original: String(h.original || ""),
+      suggested: String(h.suggested || h.corrected || ""),
+      explanation: String(h.explanation || ""),
+    }))
+    .filter((h) => h.original && h.suggested);
 }
 
 function parseVocabularyItems(raw: unknown): VocabularyExtraction[] {

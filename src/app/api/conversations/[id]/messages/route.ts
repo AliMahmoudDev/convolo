@@ -226,10 +226,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (aiResponse.grammarNotes && aiResponse.grammarNotes.length > 0) {
       messageData.grammarNotes = aiResponse.grammarNotes;
     }
-    // Store suggestions in metadata (no dedicated column yet)
+    // Store suggestions + hints in metadata (no dedicated columns yet)
     const metadata: Record<string, unknown> = { provider: getAIProvider().name };
     if (aiResponse.suggestions && aiResponse.suggestions.length > 0) {
       metadata.suggestions = aiResponse.suggestions;
+    }
+    if (aiResponse.hints && aiResponse.hints.length > 0) {
+      metadata.hints = aiResponse.hints;
     }
     messageData.metadata = metadata;
 
@@ -284,6 +287,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         content: aiResponse.reply,
         translatedContent: aiResponse.translatedReply || null,
         corrections: aiResponse.corrections || [],
+        hints: aiResponse.hints || [],
         vocabularyItems: aiResponse.vocabularyItems || [],
         grammarNotes: aiResponse.grammarNotes || [],
         suggestions: aiResponse.suggestions || [],

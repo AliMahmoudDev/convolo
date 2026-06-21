@@ -20,6 +20,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type {
   Correction,
+  Hint,
   VocabularyExtraction,
   GrammarNote,
   EndConversationResponse,
@@ -38,6 +39,8 @@ export interface ChatMessageData {
   translatedContent?: string | null;
   /** Corrections for the user's previous message (AI messages only) */
   corrections?: Correction[];
+  /** Style hints — not errors, just suggestions (AI messages only) */
+  hints?: Hint[];
   /** Vocabulary items extracted from this exchange (AI messages only) */
   vocabularyItems?: VocabularyExtraction[];
   /** Grammar notes for this exchange (AI messages only) */
@@ -230,6 +233,7 @@ export function useConversation(conversationId: string): UseConversationReturn {
             content: aiMsg.content,
             translatedContent: aiMsg.translatedContent || null,
             corrections: aiMsg.corrections || [],
+            hints: aiMsg.hints || [],
             vocabularyItems: aiMsg.vocabularyItems || [],
             grammarNotes: aiMsg.grammarNotes || [],
             suggestions: aiMsg.suggestions || [],

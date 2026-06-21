@@ -117,10 +117,13 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
       totalCorrections,
       totalVocabulary,
       messages: (messages || []).map((msg) => {
-        // Extract suggestions from metadata if available
+        // Extract suggestions + hints from metadata if available
         const metadata = (msg.metadata || {}) as Record<string, unknown>;
         const suggestions = Array.isArray(metadata.suggestions)
           ? (metadata.suggestions as string[])
+          : [];
+        const hints = Array.isArray(metadata.hints)
+          ? (metadata.hints as { original: string; suggested: string; explanation: string }[])
           : [];
         return {
           id: msg.id,
@@ -128,6 +131,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
           content: msg.content,
           translatedContent: msg.contentTranslated,
           corrections: msg.corrections,
+          hints,
           vocabularyItems: msg.vocabularyItems,
           grammarNotes: msg.grammarNotes,
           suggestions,

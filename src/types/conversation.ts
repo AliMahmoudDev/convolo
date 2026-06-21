@@ -27,6 +27,16 @@ export interface Correction {
   severity: "minor" | "moderate" | "major";
 }
 
+/** A style/punctuation hint — NOT an error, just a suggestion */
+export interface Hint {
+  /** The user's original text (not wrong, just could be improved) */
+  original: string;
+  /** The suggested improved version */
+  suggested: string;
+  /** Why this suggestion is helpful — explained in the user's native language */
+  explanation: string;
+}
+
 /** A vocabulary item extracted from the conversation */
 export interface VocabularyExtraction {
   /** The word/phrase in the target language */
@@ -55,8 +65,10 @@ export interface GrammarNote {
 export interface ParsedAIResponse {
   /** The conversational reply text (what the AI "says") */
   reply: string;
-  /** Corrections for the user's last message */
+  /** Corrections for the user's last message (actual errors) */
   corrections: Correction[];
+  /** Style hints — NOT errors, just improvement suggestions */
+  hints: Hint[];
   /** Vocabulary items worth learning from this exchange */
   vocabularyItems: VocabularyExtraction[];
   /** Grammar notes relevant to this exchange */
@@ -106,6 +118,7 @@ export interface SendMessageResponse {
     translatedContent: string;
     role: "assistant";
     corrections: Correction[];
+    hints: Hint[];
     vocabularyItems: VocabularyExtraction[];
     grammarNotes: GrammarNote[];
     createdAt: string;

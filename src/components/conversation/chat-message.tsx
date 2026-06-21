@@ -26,7 +26,7 @@ import {
   Lightbulb,
   MessageCircle,
 } from "lucide-react";
-import type { Correction, VocabularyExtraction, GrammarNote } from "@/types/conversation";
+import type { Correction, Hint, VocabularyExtraction, GrammarNote } from "@/types/conversation";
 import type { ChatMessageData } from "@/hooks/use-conversation";
 
 // ═══════════════════════════════════════════
@@ -61,6 +61,44 @@ function severityColor(severity: Correction["severity"]) {
     case "major":
       return "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400";
   }
+}
+
+/** Inline hint display — blue/neutral, NOT an error */
+function HintInline({ hint }: { hint: Hint }) {
+  const originalRTL = hasRTLText(hint.original);
+  const suggestedRTL = hasRTLText(hint.suggested);
+  const explanationRTL = hasRTLText(hint.explanation);
+
+  return (
+    <div
+      className="mt-1.5 flex items-start gap-2 rounded-lg bg-blue-50 px-3 py-2 text-xs dark:bg-blue-900/20"
+      dir="auto"
+    >
+      <span className="shrink-0 rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 dark:bg-blue-800/40 dark:text-blue-300">
+        tip
+      </span>
+      <div className="min-w-0 flex-1">
+        <span
+          className="text-[var(--text-secondary)]"
+          dir={originalRTL ? "rtl" : "ltr"}
+        >
+          {hint.original}
+        </span>
+        <span className="mx-1 text-[var(--text-muted)]">&rarr;</span>
+        <span
+          className="font-semibold text-blue-600 dark:text-blue-400"
+          dir={suggestedRTL ? "rtl" : "ltr"}
+        >
+          {hint.suggested}
+        </span>
+        {hint.explanation && (
+          <p className="mt-1 text-[var(--text-muted)]" dir={explanationRTL ? "rtl" : "ltr"}>
+            {hint.explanation}
+          </p>
+        )}
+      </div>
+    </div>
+  );
 }
 
 /** Inline correction display — with RTL support */
@@ -190,10 +228,12 @@ export function ChatMessage({ message, onSuggestionClick, targetLanguage }: Chat
   const isUser = message.role === "user";
 
   const corrections = (message.corrections || []) as Correction[];
+  const hints = (message.hints || []) as Hint[];
   const vocabulary = (message.vocabularyItems || []) as VocabularyExtraction[];
   const grammarNotes = (message.grammarNotes || []) as GrammarNote[];
   const suggestions = message.suggestions || [];
   const hasCorrections = corrections.length > 0;
+  const hasHints = hints.length > 0;
   const hasVocabulary = vocabulary.length > 0;
   const hasGrammarNotes = grammarNotes.length > 0;
   const hasTranslation = !!message.translatedContent;
@@ -263,6 +303,15 @@ export function ChatMessage({ message, onSuggestionClick, targetLanguage }: Chat
           <div className="space-y-1.5">
             {corrections.map((c, i) => (
               <CorrectionInline key={i} correction={c} />
+            ))}
+          </div>
+        )}
+
+        {/* Hints (AI messages only) — shown AFTER corrections */}
+        {hasHints && !isUser && (
+          <div className="space-y-1.5">
+            {hints.map((h, i) => (
+              <HintInline key={i} hint={h} />
             ))}
           </div>
         )}
