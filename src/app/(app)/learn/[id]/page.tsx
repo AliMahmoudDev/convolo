@@ -112,6 +112,12 @@ export default function ConversationPage() {
     }
   };
 
+  // ─── Suggestion click handler ───
+  const handleSuggestionClick = async (text: string) => {
+    if (isSending || isEnded) return;
+    await sendMessage(text);
+  };
+
   // ─── Loading state ───
   if (isLoading) {
     return (
@@ -234,7 +240,12 @@ export default function ConversationPage() {
           <div className="custom-scrollbar flex-1 overflow-y-auto px-4 py-4">
             <div className="mx-auto max-w-2xl space-y-4">
               {messages.map((msg) => (
-                <ChatMessage key={msg.id} message={msg} />
+                <ChatMessage
+                  key={msg.id}
+                  message={msg}
+                  onSuggestionClick={handleSuggestionClick}
+                  targetLanguage={conversation?.languagePair?.split("-")[1]}
+                />
               ))}
 
               {/* Thinking indicator */}
