@@ -210,11 +210,34 @@ export function parseAIResponse(rawText: string): ParsedAIResponse {
 
   try {
     const parsed = JSON.parse(jsonStr);
+
+    // Parse corrections and hints from AI response
+    const rawCorrections = parseCorrections(parsed.corrections);
+    const rawHints = parseHints(parsed.hints);
+
+    // SMART CLASSIFICATION: Move corrections that are actually style hints
+    // (apostrophe differences, capitalization, punctuation) to the hints array
+    const realCorrections: Correction[] = [];
+    const promotedHints: Hint[] = [];
+
+    for (const c of rawCorrections) {
+      if (isStyleHint(c.original, c.corrected)) {
+        // This is a style hint, not a real error → move it to hints
+        promotedHints.push({
+          original: c.original,
+          suggested: c.corrected,
+          explanation: c.explanation,
+        });
+      } else {
+        realCorrections.push(c);
+      }
+    }
+
     return {
       reply: typeof parsed.reply === "string" ? parsed.reply : "",
       translatedReply: typeof parsed.translatedReply === "string" ? parsed.translatedReply : "",
-      corrections: parseCorrections(parsed.corrections),
-      hints: parseHints(parsed.hints),
+      corrections: realCorrections,
+      hints: [...promotedHints, ...rawHints],
       vocabularyItems: parseVocabularyItems(parsed.vocabularyItems),
       grammarNotes: parseGrammarNotes(parsed.grammarNotes),
       suggestions: parseSuggestions(parsed.suggestions),
@@ -263,6 +286,38 @@ function parseCorrections(raw: unknown): Correction[] {
       if (noCorrectionPhrases.some((phrase) => originalLower === phrase || correctedLower === phrase)) return false;
       return true;
     });
+}
+
+/**
+ * Check if a correction is actually just a style hint (not a real error).
+ * Apostrophe/contraction differences, punctuation, capitalization-only
+ * changes are NOT real errors — they're hints.
+ */
+function isStyleHint(original: string, corrected: string): boolean {
+  const orig = original.trim();
+  const corr = corrected.trim();
+
+  // Remove all apostrophes, hyphens, spaces, and lowercase everything
+  // If they're the same after that, it's just a punctuation/style difference
+  const normalize = (s: string) =>
+    s.toLowerCase().replace(/[''`ʼ‛-]/g, "").replace(/\s+/g, " ").trim();
+
+  if (normalize(orig) === normalize(corr)) {
+    return true; // Only difference is apostrophe/punctuation/spaces
+  }
+
+  // Check if only capitalization changed
+  if (orig.toLowerCase() === corr.toLowerCase()) {
+    return true;
+  }
+
+  // Common contraction patterns: "Iam" → "I'm", "dont" → "don't", "cant" → "can't"
+  const contractionPattern = /^(im|ive|id|ill|youre|youve|youll|youd|hes|shes|its|were|theyre|theyve|theyll|theyd|dont|doesnt|didnt|wont|wouldnt|couldnt|shouldnt|isnt|arent|wasnt|werent|havent|hasnt|hadnt|cant|mustnt|lets|whos|whats|wheres|whens|whys|hows|iam)$/i;
+  if (contractionPattern.test(orig.replace(/[^a-zA-Z]/g, "")) || contractionPattern.test(corr.replace(/[^a-zA-Z]/g, ""))) {
+    return true;
+  }
+
+  return false;
 }
 
 function parseHints(raw: unknown): Hint[] {
