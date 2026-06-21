@@ -40,7 +40,7 @@ export async function GET() {
       return errorResponse("INTERNAL_ERROR", "Failed to fetch conversations", 500);
     }
 
-    const formatted = (conversations || []).map((conv) => ({
+    const formatted = (conversations || []).map((conv: any) => ({
       id: conv.id,
       userId: conv.userId,
       scenarioId: conv.scenarioId,

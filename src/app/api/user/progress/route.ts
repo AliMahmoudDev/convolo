@@ -50,7 +50,7 @@ export async function GET() {
       .eq("userId", dbUser.id);
 
     const totalMinutes = (convDurations || []).reduce(
-      (sum, c) => sum + (c.durationMinutes || 0),
+      (sum: any, c: any) => sum + (c.durationMinutes || 0),
       0
     );
 
@@ -106,19 +106,19 @@ export async function GET() {
       .eq("userId", dbUser.id);
 
     // Aggregate XP and score across all language pairs
-    const xpPoints = (progressRecord || []).reduce((sum, r) => sum + (r.xpPoints || 0), 0);
+    const xpPoints = (progressRecord || []).reduce((sum: any, r: any) => sum + (r.xpPoints || 0), 0);
 
     // Weighted average score
-    const validScores = (progressRecord || []).filter((r) => r.avgScore != null);
+    const validScores = (progressRecord || []).filter((r: any) => r.avgScore != null);
     const avgScore =
       validScores.length > 0
-        ? Math.round(validScores.reduce((sum, r) => sum + (r.avgScore || 0), 0) / validScores.length)
+        ? Math.round(validScores.reduce((sum: any, r: any) => sum + (r.avgScore || 0), 0) / validScores.length)
         : 0;
 
     const levelProgress =
       validScores.length > 0
         ? Math.round(
-            validScores.reduce((sum, r) => sum + (r.levelProgress || 0), 0) / validScores.length
+            validScores.reduce((sum: any, r: any) => sum + (r.levelProgress || 0), 0) / validScores.length
           )
         : 0;
 
@@ -163,8 +163,8 @@ export async function GET() {
     let prevDate: Date | null = null;
 
     const sortedUsage = (allDailyUsage || [])
-      .filter((du) => (du.conversationsCount || 0) > 0)
-      .sort((a, b) => a.date.localeCompare(b.date));
+      .filter((du: any) => (du.conversationsCount || 0) > 0)
+      .sort((a: any, b: any) => a.date.localeCompare(b.date));
 
     for (const du of sortedUsage) {
       const currentDate = new Date(du.date + "T00:00:00Z");
@@ -207,7 +207,7 @@ export async function GET() {
       date.setDate(date.getDate() - i);
       const dateStr = date.toISOString().split("T")[0];
 
-      const dayUsage = allDailyUsage?.find((du) => du.date === dateStr);
+      const dayUsage = allDailyUsage?.find((du: any) => du.date === dateStr);
 
       weeklyActivity.push({
         date: dateStr,
@@ -235,7 +235,7 @@ export async function GET() {
     }
 
     // Build language progress from user_progress records
-    const languageProgress = (progressRecord || []).map((r) => ({
+    const languageProgress = (progressRecord || []).map((r: any) => ({
       languagePair: r.languagePair,
       totalConversations: convCountsByLang.get(r.languagePair) || 0,
       avgScore: r.avgScore || 0,
@@ -244,7 +244,7 @@ export async function GET() {
 
     // Also add language pairs that have conversations but no progress record yet
     for (const [lp, count] of convCountsByLang.entries()) {
-      if (!languageProgress.find((p) => p.languagePair === lp)) {
+      if (!languageProgress.find((p: any) => p.languagePair === lp)) {
         languageProgress.push({
           languagePair: lp,
           totalConversations: count,

@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
       return errorResponse("INTERNAL_ERROR", "Failed to fetch scenarios", 500);
     }
 
-    const filtered = (scenarios || []).map((s) => ({
+    const filtered = (scenarios || []).map((s: any) => ({
       id: s.id,
       title: s.title,
       description: s.description,

@@ -142,7 +142,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     );
 
     // Build history from existing messages
-    const history = (previousMessages || []).map((msg) => ({
+    const history = (previousMessages || []).map((msg: any) => ({
       role: msg.role === "assistant" ? ("assistant" as const) : ("user" as const),
       content: msg.content,
     }));

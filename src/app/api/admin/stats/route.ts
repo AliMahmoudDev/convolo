@@ -38,10 +38,10 @@ export async function GET() {
       .select("plan");
 
     const proCount = (subscriptionBreakdown || []).filter(
-      (s) => s.plan !== "free" && s.plan !== null
+      (s: any) => s.plan !== "free" && s.plan !== null
     ).length;
     const freeCount = (subscriptionBreakdown || []).filter(
-      (s) => s.plan === "free" || s.plan === null
+      (s: any) => s.plan === "free" || s.plan === null
     ).length;
 
     // Active users today
@@ -58,7 +58,7 @@ export async function GET() {
       .from("daily_usage")
       .select("userId")
       .gte("date", weekAgo.toISOString().split("T")[0]);
-    const activeThisWeek = new Set((weekData || []).map((d) => d.userId)).size;
+    const activeThisWeek = new Set((weekData || []).map((d: any) => d.userId)).size;
 
     // Active users this month (last 30 days)
     const monthAgo = new Date();
@@ -67,7 +67,7 @@ export async function GET() {
       .from("daily_usage")
       .select("userId")
       .gte("date", monthAgo.toISOString().split("T")[0]);
-    const activeThisMonth = new Set((monthData || []).map((d) => d.userId)).size;
+    const activeThisMonth = new Set((monthData || []).map((d: any) => d.userId)).size;
 
     // Revenue metrics — count active paid subscriptions
     const { count: activeProSubscriptions } = await db
@@ -85,7 +85,7 @@ export async function GET() {
 
     // Enrich recent signups with subscription data
     const enrichedSignups = await Promise.all(
-      (recentSignups || []).map(async (user) => {
+      (recentSignups || []).map(async (user: any) => {
         const { data: sub } = await db
           .from("subscriptions")
           .select("plan, status")

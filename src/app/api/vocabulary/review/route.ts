@@ -197,7 +197,7 @@ export async function GET() {
       return errorResponse("INTERNAL_ERROR", "Failed to fetch review items", 500);
     }
 
-    const conversationIds = (conversations || []).map((c) => c.id);
+    const conversationIds = (conversations || []).map((c: any) => c.id);
 
     if (conversationIds.length === 0) {
       return successResponse({ items: [], total: 0 });
@@ -345,7 +345,7 @@ export async function POST(request: NextRequest) {
       return errorResponse("INTERNAL_ERROR", "Failed to submit review", 500);
     }
 
-    const conversationIds = (conversations || []).map((c) => c.id);
+    const conversationIds = (conversations || []).map((c: any) => c.id);
 
     if (conversationIds.length === 0) {
       return errorResponse("NOT_FOUND", "No conversations found", 404);
@@ -401,7 +401,7 @@ export async function POST(request: NextRequest) {
 
     // 6. Update the message metadata with the new SRS data
     // We need to merge with existing metadata
-    const existingMsg = messages!.find((m) => (m.id as string) === targetMessageId);
+    const existingMsg = messages!.find((m: any) => (m.id as string) === targetMessageId);
     const existingMetadata = (existingMsg?.metadata as Record<string, unknown>) || {};
     const existingSrsReviews = (existingMetadata.srsReviews as Record<string, ReviewMeta>) || {};
 

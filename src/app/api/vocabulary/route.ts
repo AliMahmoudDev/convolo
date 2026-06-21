@@ -42,8 +42,8 @@ function matchesSearch(item: VocabItem, query: string): boolean {
   return (
     item.word.toLowerCase().includes(q) ||
     item.translation.toLowerCase().includes(q) ||
-    (item.definition && item.definition.toLowerCase().includes(q)) ||
-    (item.partOfSpeech && item.partOfSpeech.toLowerCase().includes(q))
+    !!(item.definition && item.definition.toLowerCase().includes(q)) ||
+    !!(item.partOfSpeech && item.partOfSpeech.toLowerCase().includes(q))
   );
 }
 
@@ -79,7 +79,7 @@ export async function GET(request: NextRequest) {
       return errorResponse("INTERNAL_ERROR", "Failed to fetch vocabulary", 500);
     }
 
-    const conversationIds = (conversations || []).map((c) => c.id);
+    const conversationIds = (conversations || []).map((c: any) => c.id);
 
     if (conversationIds.length === 0) {
       return successResponse({ items: [], total: 0, page, limit, totalPages: 0 });

@@ -116,7 +116,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
       scenario: conversation.scenario,
       totalCorrections,
       totalVocabulary,
-      messages: (messages || []).map((msg) => {
+      messages: (messages || []).map((msg: any) => {
         // Extract suggestions + hints from metadata if available
         const metadata = (msg.metadata || {}) as Record<string, unknown>;
         const suggestions = Array.isArray(metadata.suggestions)
@@ -218,7 +218,7 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
     }
 
     // Calculate score based on corrections vs messages
-    const userMessageCount = (messages || []).filter((m) => m.role === "user").length;
+    const userMessageCount = (messages || []).filter((m: any) => m.role === "user").length;
     const correctionsRatio = userMessageCount > 0 ? correctionsCount / userMessageCount : 0;
     const overallScore = Math.max(0, Math.min(100, Math.round(100 - correctionsRatio * 20)));
 

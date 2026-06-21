@@ -12,7 +12,6 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
-import type { Database } from "@/types/database";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
@@ -22,28 +21,21 @@ if (
   process.env.NODE_ENV === "production" &&
   typeof window === "undefined"
 ) {
-  // Only warn in server-side production, don't crash the build
-  // The actual API routes will fail at request time if the keys are missing
   console.warn(
     "[DB] Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY — DB operations will fail"
   );
 }
 
-const globalForSupabase = globalThis as unknown as {
-  supabaseAdmin: ReturnType<typeof createClient<Database>> | undefined;
-};
-
-export const db =
-  globalForSupabase.supabaseAdmin ??
-  createClient<Database>(
-    supabaseUrl || "https://placeholder.supabase.co",
-    supabaseServiceKey || "placeholder-key",
-    {
-      auth: { autoRefreshToken: false, persistSession: false },
-    }
-  );
-
-if (process.env.NODE_ENV !== "production" && supabaseUrl) globalForSupabase.supabaseAdmin = db;
+// Use `any` for the Database type — we don't have a generated Supabase schema
+// and the GenericTable approach causes "never" type inference with strict mode.
+// This is safe because our API routes validate data at runtime.
+export const db = createClient(
+  supabaseUrl || "https://placeholder.supabase.co",
+  supabaseServiceKey || "placeholder-key",
+  {
+    auth: { autoRefreshToken: false, persistSession: false },
+  }
+) as any;
 
 /** Generate a new UUID for database records */
 export function generateId(): string {

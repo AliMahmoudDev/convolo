@@ -55,7 +55,7 @@ export async function GET(request: NextRequest) {
 
     // Enrich with subscription data
     const enrichedUsers = await Promise.all(
-      (users || []).map(async (user) => {
+      (users || []).map(async (user: any) => {
         const { data: sub } = await db
           .from("subscriptions")
           .select("plan, status")
