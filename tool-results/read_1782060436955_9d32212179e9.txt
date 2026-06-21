@@ -1,0 +1,678 @@
+     1→     1→"use client";
+     2→     2→
+     3→     3→import { useEffect, useState, useCallback } from "react";
+     4→     4→import {
+     5→     5→  BookOpen,
+     6→     6→  Search,
+     7→     7→  Loader2,
+     8→     8→  AlertTriangle,
+     9→     9→  Plus,
+    10→    10→  Pencil,
+    11→    11→  Trash2,
+    12→    12→  Eye,
+    13→    13→  EyeOff,
+    14→    14→  Crown,
+    15→    15→  RefreshCw,
+    16→    16→  X,
+    17→    17→  ChevronLeft,
+    18→    18→  ChevronRight,
+    19→    19→} from "lucide-react";
+    20→    20→import { cn } from "@/lib/utils";
+    21→    21→import { toast } from "sonner";
+    22→    22→
+    23→    23→interface AdminScenario {
+    24→    24→  id: string;
+    25→    25→  title: string;
+    26→    26→  description: string;
+    27→    27→  languagePair: string;
+    28→    28→  category: string;
+    29→    29→  difficultyLevel: string;
+    30→    30→  openingLine: string;
+    31→    31→  isPremium: boolean;
+    32→    32→  isPublished: boolean;
+    33→    33→  sortOrder: number;
+    34→    34→  createdAt: string;
+    35→    35→  updatedAt: string;
+    36→    36→}
+    37→    37→
+    38→    38→interface ScenariosResponse {
+    39→    39→  scenarios: AdminScenario[];
+    40→    40→  total: number;
+    41→    41→  page: number;
+    42→    42→  limit: number;
+    43→    43→  totalPages: number;
+    44→    44→}
+    45→    45→
+    46→    46→const CATEGORIES = ["daily", "travel", "business", "academic", "social", "medical"];
+    47→    47→const DIFFICULTY_LEVELS = ["beginner", "intermediate", "advanced"];
+    48→    48→
+    49→    49→function formatDate(dateStr: string) {
+    50→    50→  return new Date(dateStr).toLocaleDateString("en-US", {
+    51→    51→    month: "short",
+    52→    52→    day: "numeric",
+    53→    53→    year: "numeric",
+    54→    54→  });
+    55→    55→}
+    56→    56→
+    57→    57→function getCategoryBadge(category: string) {
+    58→    58→  const colors: Record<string, string> = {
+    59→    59→    daily: "bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400",
+    60→    60→    travel: "bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400",
+    61→    61→    business: "bg-purple-50 text-purple-700 dark:bg-purple-950/30 dark:text-purple-400",
+    62→    62→    academic: "bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-400",
+    63→    63→    social: "bg-pink-50 text-pink-700 dark:bg-pink-950/30 dark:text-pink-400",
+    64→    64→    medical: "bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-400",
+    65→    65→  };
+    66→    66→  return (
+    67→    67→    <span
+    68→    68→      className={cn(
+    69→    69→        "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium capitalize",
+    70→    70→        colors[category] || "bg-[var(--bg-elevated)] text-[var(--text-secondary)]"
+    71→    71→      )}
+    72→    72→    >
+    73→    73→      {category}
+    74→    74→    </span>
+    75→    75→  );
+    76→    76→}
+    77→    77→
+    78→    78→// Scenario form modal
+    79→    79→function ScenarioModal({
+    80→    80→  scenario,
+    81→    81→  onClose,
+    82→    82→  onSave,
+    83→    83→}: {
+    84→    84→  scenario: AdminScenario | null;
+    85→    85→  onClose: () => void;
+    86→    86→  onSave: (data: Record<string, unknown>) => Promise<void>;
+    87→    87→}) {
+    88→    88→  const [saving, setSaving] = useState(false);
+    89→    89→  const isEdit = !!scenario;
+    90→    90→
+    91→    91→  const [form, setForm] = useState({
+    92→    92→    title: scenario?.title || "",
+    93→    93→    description: scenario?.description || "",
+    94→    94→    category: scenario?.category || "daily",
+    95→    95→    difficultyLevel: scenario?.difficultyLevel || "intermediate",
+    96→    96→    targetLanguage: scenario?.languagePair?.split("-")[1] || "ar",
+    97→    97→    openingLine: scenario?.openingLine || "",
+    98→    98→    isPremium: scenario?.isPremium || false,
+    99→    99→    isPublished: scenario?.isPublished || false,
+   100→   100→  });
+   101→   101→
+   102→   102→  const handleSubmit = async (e: React.FormEvent) => {
+   103→   103→    e.preventDefault();
+   104→   104→    setSaving(true);
+   105→   105→    try {
+   106→   106→      const payload: Record<string, unknown> = { ...form };
+   107→   107→      if (isEdit) {
+   108→   108→        payload.id = scenario.id;
+   109→   109→      }
+   110→   110→      await onSave(payload);
+   111→   111→      onClose();
+   112→   112→    } catch {
+   113→   113→      // Error handled in parent
+   114→   114→    } finally {
+   115→   115→      setSaving(false);
+   116→   116→    }
+   117→   117→  };
+   118→   118→
+   119→   119→  return (
+   120→   120→    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+   121→   121→      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+   122→   122→      <div className="relative w-full max-w-lg rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] shadow-xl">
+   123→   123→        {/* Header */}
+   124→   124→        <div className="flex items-center justify-between border-b border-[var(--border-default)] px-5 py-4">
+   125→   125→          <h2 className="text-lg font-semibold text-[var(--text-primary)]">
+   126→   126→            {isEdit ? "Edit Scenario" : "Create Scenario"}
+   127→   127→          </h2>
+   128→   128→          <button
+   129→   129→            onClick={onClose}
+   130→   130→            className="rounded-lg p-1.5 text-[var(--text-muted)] hover:bg-[var(--bg-elevated)]"
+   131→   131→          >
+   132→   132→            <X className="h-5 w-5" />
+   133→   133→          </button>
+   134→   134→        </div>
+   135→   135→
+   136→   136→        {/* Form */}
+   137→   137→        <form onSubmit={handleSubmit} className="max-h-[70vh] overflow-y-auto p-5">
+   138→   138→          <div className="space-y-4">
+   139→   139→            {/* Title */}
+   140→   140→            <div>
+   141→   141→              <label className="mb-1.5 block text-xs font-medium text-[var(--text-secondary)]">
+   142→   142→                Title *
+   143→   143→              </label>
+   144→   144→              <input
+   145→   145→                type="text"
+   146→   146→                required
+   147→   147→                value={form.title}
+   148→   148→                onChange={(e) => setForm({ ...form, title: e.target.value })}
+   149→   149→                className="w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-base)] px-3 py-2.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)] focus:ring-2 focus:ring-[var(--accent-primary)]/20"
+   150→   150→                placeholder="e.g., Ordering at a Restaurant"
+   151→   151→              />
+   152→   152→            </div>
+   153→   153→
+   154→   154→            {/* Description */}
+   155→   155→            <div>
+   156→   156→              <label className="mb-1.5 block text-xs font-medium text-[var(--text-secondary)]">
+   157→   157→                Description *
+   158→   158→              </label>
+   159→   159→              <textarea
+   160→   160→                required
+   161→   161→                value={form.description}
+   162→   162→                onChange={(e) => setForm({ ...form, description: e.target.value })}
+   163→   163→                rows={3}
+   164→   164→                className="w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-base)] px-3 py-2.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)] focus:ring-2 focus:ring-[var(--accent-primary)]/20"
+   165→   165→                placeholder="Describe the scenario..."
+   166→   166→              />
+   167→   167→            </div>
+   168→   168→
+   169→   169→            {/* Category + Difficulty */}
+   170→   170→            <div className="grid grid-cols-2 gap-3">
+   171→   171→              <div>
+   172→   172→                <label className="mb-1.5 block text-xs font-medium text-[var(--text-secondary)]">
+   173→   173→                  Category
+   174→   174→                </label>
+   175→   175→                <select
+   176→   176→                  value={form.category}
+   177→   177→                  onChange={(e) => setForm({ ...form, category: e.target.value })}
+   178→   178→                  className="w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-base)] px-3 py-2.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]"
+   179→   179→                >
+   180→   180→                  {CATEGORIES.map((cat) => (
+   181→   181→                    <option key={cat} value={cat}>
+   182→   182→                      {cat.charAt(0).toUpperCase() + cat.slice(1)}
+   183→   183→                    </option>
+   184→   184→                  ))}
+   185→   185→                </select>
+   186→   186→              </div>
+   187→   187→              <div>
+   188→   188→                <label className="mb-1.5 block text-xs font-medium text-[var(--text-secondary)]">
+   189→   189→                  Difficulty
+   190→   190→                </label>
+   191→   191→                <select
+   192→   192→                  value={form.difficultyLevel}
+   193→   193→                  onChange={(e) => setForm({ ...form, difficultyLevel: e.target.value })}
+   194→   194→                  className="w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-base)] px-3 py-2.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]"
+   195→   195→                >
+   196→   196→                  {DIFFICULTY_LEVELS.map((level) => (
+   197→   197→                    <option key={level} value={level}>
+   198→   198→                      {level.charAt(0).toUpperCase() + level.slice(1)}
+   199→   199→                    </option>
+   200→   200→                  ))}
+   201→   201→                </select>
+   202→   202→              </div>
+   203→   203→            </div>
+   204→   204→
+   205→   205→            {/* Target Language */}
+   206→   206→            <div>
+   207→   207→              <label className="mb-1.5 block text-xs font-medium text-[var(--text-secondary)]">
+   208→   208→                Target Language
+   209→   209→              </label>
+   210→   210→              <select
+   211→   211→                value={form.targetLanguage}
+   212→   212→                onChange={(e) => setForm({ ...form, targetLanguage: e.target.value })}
+   213→   213→                className="w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-base)] px-3 py-2.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]"
+   214→   214→              >
+   215→   215→                <option value="ar">Arabic</option>
+   216→   216→                <option value="es">Spanish</option>
+   217→   217→                <option value="fr">French</option>
+   218→   218→                <option value="de">German</option>
+   219→   219→                <option value="ja">Japanese</option>
+   220→   220→                <option value="ko">Korean</option>
+   221→   221→                <option value="zh">Chinese</option>
+   222→   222→                <option value="pt">Portuguese</option>
+   223→   223→                <option value="it">Italian</option>
+   224→   224→                <option value="ru">Russian</option>
+   225→   225→                <option value="hi">Hindi</option>
+   226→   226→                <option value="tr">Turkish</option>
+   227→   227→              </select>
+   228→   228→            </div>
+   229→   229→
+   230→   230→            {/* Opening Line */}
+   231→   231→            <div>
+   232→   232→              <label className="mb-1.5 block text-xs font-medium text-[var(--text-secondary)]">
+   233→   233→                Opening Line
+   234→   234→              </label>
+   235→   235→              <input
+   236→   236→                type="text"
+   237→   237→                value={form.openingLine}
+   238→   238→                onChange={(e) => setForm({ ...form, openingLine: e.target.value })}
+   239→   239→                className="w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-base)] px-3 py-2.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)] focus:ring-2 focus:ring-[var(--accent-primary)]/20"
+   240→   240→                placeholder="e.g., Welcome! How can I help you today?"
+   241→   241→              />
+   242→   242→            </div>
+   243→   243→
+   244→   244→            {/* Toggles */}
+   245→   245→            <div className="flex items-center gap-6">
+   246→   246→              <label className="flex cursor-pointer items-center gap-2">
+   247→   247→                <input
+   248→   248→                  type="checkbox"
+   249→   249→                  checked={form.isPremium}
+   250→   250→                  onChange={(e) => setForm({ ...form, isPremium: e.target.checked })}
+   251→   251→                  className="h-4 w-4 rounded border-[var(--border-default)] text-[var(--accent-primary)] focus:ring-[var(--accent-primary)]"
+   252→   252→                />
+   253→   253→                <span className="flex items-center gap-1 text-sm text-[var(--text-secondary)]">
+   254→   254→                  <Crown className="h-3.5 w-3.5" /> Premium
+   255→   255→                </span>
+   256→   256→              </label>
+   257→   257→              <label className="flex cursor-pointer items-center gap-2">
+   258→   258→                <input
+   259→   259→                  type="checkbox"
+   260→   260→                  checked={form.isPublished}
+   261→   261→                  onChange={(e) => setForm({ ...form, isPublished: e.target.checked })}
+   262→   262→                  className="h-4 w-4 rounded border-[var(--border-default)] text-[var(--accent-primary)] focus:ring-[var(--accent-primary)]"
+   263→   263→                />
+   264→   264→                <span className="text-sm text-[var(--text-secondary)]">Published</span>
+   265→   265→              </label>
+   266→   266→            </div>
+   267→   267→          </div>
+   268→   268→
+   269→   269→          {/* Footer */}
+   270→   270→          <div className="mt-6 flex items-center justify-end gap-3">
+   271→   271→            <button
+   272→   272→              type="button"
+   273→   273→              onClick={onClose}
+   274→   274→              className="rounded-lg border border-[var(--border-default)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]"
+   275→   275→            >
+   276→   276→              Cancel
+   277→   277→            </button>
+   278→   278→            <button
+   279→   279→              type="submit"
+   280→   280→              disabled={saving}
+   281→   281→              className="inline-flex items-center gap-2 rounded-lg bg-[var(--accent-primary)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-50"
+   282→   282→            >
+   283→   283→              {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+   284→   284→              {isEdit ? "Save Changes" : "Create Scenario"}
+   285→   285→            </button>
+   286→   286→          </div>
+   287→   287→        </form>
+   288→   288→      </div>
+   289→   289→    </div>
+   290→   290→  );
+   291→   291→}
+   292→   292→
+   293→   293→export default function AdminScenariosPage() {
+   294→   294→  const [scenarios, setScenarios] = useState<AdminScenario[]>([]);
+   295→   295→  const [total, setTotal] = useState(0);
+   296→   296→  const [page, setPage] = useState(1);
+   297→   297→  const [totalPages, setTotalPages] = useState(1);
+   298→   298→  const [loading, setLoading] = useState(true);
+   299→   299→  const [error, setError] = useState<string | null>(null);
+   300→   300→  const [search, setSearch] = useState("");
+   301→   301→  const [searchInput, setSearchInput] = useState("");
+   302→   302→  const [categoryFilter, setCategoryFilter] = useState("");
+   303→   303→  const [modalOpen, setModalOpen] = useState(false);
+   304→   304→  const [editingScenario, setEditingScenario] = useState<AdminScenario | null>(null);
+   305→   305→  const [deleting, setDeleting] = useState<string | null>(null);
+   306→   306→  const [toggling, setToggling] = useState<string | null>(null);
+   307→   307→
+   308→   308→  const fetchScenarios = useCallback(async () => {
+   309→   309→    setLoading(true);
+   310→   310→    setError(null);
+   311→   311→    try {
+   312→   312→      const params = new URLSearchParams({
+   313→   313→        page: page.toString(),
+   314→   314→        limit: "20",
+   315→   315→      });
+   316→   316→      if (search) params.set("search", search);
+   317→   317→      if (categoryFilter) params.set("category", categoryFilter);
+   318→   318→
+   319→   319→      const res = await fetch(`/api/admin/scenarios?${params}`);
+   320→   320→      const data = await res.json();
+   321→   321→      if (data.success) {
+   322→   322→        setScenarios(data.data.scenarios);
+   323→   323→        setTotal(data.data.total);
+   324→   324→        setTotalPages(data.data.totalPages);
+   325→   325→      } else {
+   326→   326→        setError(data.error?.message || "Failed to fetch scenarios");
+   327→   327→      }
+   328→   328→    } catch {
+   329→   329→      setError("Network error");
+   330→   330→    } finally {
+   331→   331→      setLoading(false);
+   332→   332→    }
+   333→   333→  }, [page, search, categoryFilter]);
+   334→   334→
+   335→   335→  useEffect(() => {
+   336→   336→    fetchScenarios();
+   337→   337→  }, [fetchScenarios]);
+   338→   338→
+   339→   339→  const handleSearch = (e: React.FormEvent) => {
+   340→   340→    e.preventDefault();
+   341→   341→    setSearch(searchInput);
+   342→   342→    setPage(1);
+   343→   343→  };
+   344→   344→
+   345→   345→  const handleSave = async (data: Record<string, unknown>) => {
+   346→   346→    const isEdit = !!data.id;
+   347→   347→    const res = await fetch("/api/admin/scenarios", {
+   348→   348→      method: isEdit ? "PUT" : "POST",
+   349→   349→      headers: { "Content-Type": "application/json" },
+   350→   350→      body: JSON.stringify(data),
+   351→   351→    });
+   352→   352→    const result = await res.json();
+   353→   353→    if (result.success) {
+   354→   354→      toast.success(isEdit ? "Scenario updated" : "Scenario created");
+   355→   355→      fetchScenarios();
+   356→   356→    } else {
+   357→   357→      toast.error(result.error?.message || "Failed to save scenario");
+   358→   358→      throw new Error("Save failed");
+   359→   359→    }
+   360→   360→  };
+   361→   361→
+   362→   362→  const handleDelete = async (id: string) => {
+   363→   363→    if (!confirm("Are you sure you want to delete this scenario?")) return;
+   364→   364→    setDeleting(id);
+   365→   365→    try {
+   366→   366→      const res = await fetch(`/api/admin/scenarios?id=${id}`, { method: "DELETE" });
+   367→   367→      const data = await res.json();
+   368→   368→      if (data.success) {
+   369→   369→        toast.success("Scenario deleted");
+   370→   370→        fetchScenarios();
+   371→   371→      } else {
+   372→   372→        toast.error(data.error?.message || "Failed to delete scenario");
+   373→   373→      }
+   374→   374→    } catch {
+   375→   375→      toast.error("Network error");
+   376→   376→    } finally {
+   377→   377→      setDeleting(null);
+   378→   378→    }
+   379→   379→  };
+   380→   380→
+   381→   381→  const handleTogglePublished = async (scenario: AdminScenario) => {
+   382→   382→    setToggling(scenario.id);
+   383→   383→    try {
+   384→   384→      const res = await fetch("/api/admin/scenarios", {
+   385→   385→        method: "PUT",
+   386→   386→        headers: { "Content-Type": "application/json" },
+   387→   387→        body: JSON.stringify({
+   388→   388→          id: scenario.id,
+   389→   389→          isPublished: !scenario.isPublished,
+   390→   390→        }),
+   391→   391→      });
+   392→   392→      const data = await res.json();
+   393→   393→      if (data.success) {
+   394→   394→        toast.success(scenario.isPublished ? "Scenario unpublished" : "Scenario published");
+   395→   395→        fetchScenarios();
+   396→   396→      } else {
+   397→   397→        toast.error(data.error?.message || "Failed to toggle");
+   398→   398→      }
+   399→   399→    } catch {
+   400→   400→      toast.error("Network error");
+   401→   401→    } finally {
+   402→   402→      setToggling(null);
+   403→   403→    }
+   404→   404→  };
+   405→   405→
+   406→   406→  const handleTogglePremium = async (scenario: AdminScenario) => {
+   407→   407→    setToggling(scenario.id);
+   408→   408→    try {
+   409→   409→      const res = await fetch("/api/admin/scenarios", {
+   410→   410→        method: "PUT",
+   411→   411→        headers: { "Content-Type": "application/json" },
+   412→   412→        body: JSON.stringify({
+   413→   413→          id: scenario.id,
+   414→   414→          isPremium: !scenario.isPremium,
+   415→   415→        }),
+   416→   416→      });
+   417→   417→      const data = await res.json();
+   418→   418→      if (data.success) {
+   419→   419→        toast.success(scenario.isPremium ? "Made free" : "Made premium");
+   420→   420→        fetchScenarios();
+   421→   421→      } else {
+   422→   422→        toast.error(data.error?.message || "Failed to toggle");
+   423→   423→      }
+   424→   424→    } catch {
+   425→   425→      toast.error("Network error");
+   426→   426→    } finally {
+   427→   427→      setToggling(null);
+   428→   428→    }
+   429→   429→  };
+   430→   430→
+   431→   431→  const openCreateModal = () => {
+   432→   432→    setEditingScenario(null);
+   433→   433→    setModalOpen(true);
+   434→   434→  };
+   435→   435→
+   436→   436→  const openEditModal = (scenario: AdminScenario) => {
+   437→   437→    setEditingScenario(scenario);
+   438→   438→    setModalOpen(true);
+   439→   439→  };
+   440→   440→
+   441→   441→  return (
+   442→   442→    <div className="space-y-6">
+   443→   443→      {/* Page header */}
+   444→   444→      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+   445→   445→        <div>
+   446→   446→          <h1 className="text-2xl font-bold text-[var(--text-primary)]">Scenarios</h1>
+   447→   447→          <p className="text-sm text-[var(--text-secondary)]">
+   448→   448→            Manage conversation scenarios — {total} total
+   449→   449→          </p>
+   450→   450→        </div>
+   451→   451→        <div className="flex items-center gap-2">
+   452→   452→          <button
+   453→   453→            onClick={fetchScenarios}
+   454→   454→            className="inline-flex items-center gap-2 rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-2 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-elevated)]"
+   455→   455→          >
+   456→   456→            <RefreshCw className="h-4 w-4" />
+   457→   457→            Refresh
+   458→   458→          </button>
+   459→   459→          <button
+   460→   460→            onClick={openCreateModal}
+   461→   461→            className="inline-flex items-center gap-2 rounded-lg bg-[var(--accent-primary)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--accent-hover)]"
+   462→   462→          >
+   463→   463→            <Plus className="h-4 w-4" />
+   464→   464→            New Scenario
+   465→   465→          </button>
+   466→   466→        </div>
+   467→   467→      </div>
+   468→   468→
+   469→   469→      {/* Filters */}
+   470→   470→      <div className="flex flex-col gap-3 sm:flex-row">
+   471→   471→        <form onSubmit={handleSearch} className="flex-1">
+   472→   472→          <div className="relative">
+   473→   473→            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
+   474→   474→            <input
+   475→   475→              type="text"
+   476→   476→              placeholder="Search scenarios..."
+   477→   477→              value={searchInput}
+   478→   478→              onChange={(e) => setSearchInput(e.target.value)}
+   479→   479→              className="w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] py-2.5 pl-10 pr-4 text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none transition-colors focus:border-[var(--accent-primary)] focus:ring-2 focus:ring-[var(--accent-primary)]/20"
+   480→   480→            />
+   481→   481→          </div>
+   482→   482→        </form>
+   483→   483→        <select
+   484→   484→          value={categoryFilter}
+   485→   485→          onChange={(e) => {
+   486→   486→            setCategoryFilter(e.target.value);
+   487→   487→            setPage(1);
+   488→   488→          }}
+   489→   489→          className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-2.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]"
+   490→   490→        >
+   491→   491→          <option value="">All Categories</option>
+   492→   492→          {CATEGORIES.map((cat) => (
+   493→   493→            <option key={cat} value={cat}>
+   494→   494→              {cat.charAt(0).toUpperCase() + cat.slice(1)}
+   495→   495→            </option>
+   496→   496→          ))}
+   497→   497→        </select>
+   498→   498→      </div>
+   499→   499→
+   500→   500→      {/* Error */}
+   501→   501→      {error && (
+   502→   502→        <div className="flex items-center gap-3 rounded-lg border border-[var(--state-error)]/20 bg-[var(--state-error-light)] px-4 py-3">
+   503→   503→          <AlertTriangle className="h-5 w-5 text-[var(--state-error)]" />
+   504→   504→          <p className="text-sm text-[var(--state-error)]">{error}</p>
+   505→   505→        </div>
+   506→   506→      )}
+   507→   507→
+   508→   508→      {/* Table */}
+   509→   509→      <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)]">
+   510→   510→        {loading ? (
+   511→   511→          <div className="flex h-48 items-center justify-center">
+   512→   512→            <Loader2 className="h-6 w-6 animate-spin text-[var(--accent-primary)]" />
+   513→   513→          </div>
+   514→   514→        ) : scenarios.length === 0 ? (
+   515→   515→          <div className="flex h-48 flex-col items-center justify-center gap-2">
+   516→   516→            <BookOpen className="h-8 w-8 text-[var(--text-muted)]" />
+   517→   517→            <p className="text-sm text-[var(--text-muted)]">
+   518→   518→              {search || categoryFilter ? "No scenarios match your filters" : "No scenarios yet"}
+   519→   519→            </p>
+   520→   520→          </div>
+   521→   521→        ) : (
+   522→   522→          <>
+   523→   523→            <div className="overflow-x-auto">
+   524→   524→              <table className="w-full">
+   525→   525→                <thead>
+   526→   526→                  <tr className="border-b border-[var(--border-default)]">
+   527→   527→                    <th className="px-5 py-3 text-left text-xs font-medium text-[var(--text-muted)]">
+   528→   528→                      Title
+   529→   529→                    </th>
+   530→   530→                    <th className="hidden px-5 py-3 text-left text-xs font-medium text-[var(--text-muted)] md:table-cell">
+   531→   531→                      Category
+   532→   532→                    </th>
+   533→   533→                    <th className="hidden px-5 py-3 text-left text-xs font-medium text-[var(--text-muted)] sm:table-cell">
+   534→   534→                      Difficulty
+   535→   535→                    </th>
+   536→   536→                    <th className="hidden px-5 py-3 text-left text-xs font-medium text-[var(--text-muted)] lg:table-cell">
+   537→   537→                      Language
+   538→   538→                    </th>
+   539→   539→                    <th className="px-5 py-3 text-left text-xs font-medium text-[var(--text-muted)]">
+   540→   540→                      Status
+   541→   541→                    </th>
+   542→   542→                    <th className="hidden px-5 py-3 text-left text-xs font-medium text-[var(--text-muted)] lg:table-cell">
+   543→   543→                      Updated
+   544→   544→                    </th>
+   545→   545→                    <th className="px-5 py-3 text-left text-xs font-medium text-[var(--text-muted)]">
+   546→   546→                      Actions
+   547→   547→                    </th>
+   548→   548→                  </tr>
+   549→   549→                </thead>
+   550→   550→                <tbody>
+   551→   551→                  {scenarios.map((scenario) => (
+   552→   552→                    <tr
+   553→   553→                      key={scenario.id}
+   554→   554→                      className="border-b border-[var(--border-default)] last:border-0 hover:bg-[var(--bg-elevated)]/50"
+   555→   555→                    >
+   556→   556→                      <td className="px-5 py-3">
+   557→   557→                        <div className="flex items-center gap-2">
+   558→   558→                          <p className="text-sm font-medium text-[var(--text-primary)]">
+   559→   559→                            {scenario.title}
+   560→   560→                          </p>
+   561→   561→                          {scenario.isPremium && (
+   562→   562→                            <Crown className="h-3.5 w-3.5 text-[var(--color-gold)]" />
+   563→   563→                          )}
+   564→   564→                        </div>
+   565→   565→                        <p className="mt-0.5 line-clamp-1 max-w-xs text-xs text-[var(--text-muted)]">
+   566→   566→                          {scenario.description}
+   567→   567→                        </p>
+   568→   568→                      </td>
+   569→   569→                      <td className="hidden px-5 py-3 md:table-cell">
+   570→   570→                        {getCategoryBadge(scenario.category)}
+   571→   571→                      </td>
+   572→   572→                      <td className="hidden px-5 py-3 text-sm capitalize text-[var(--text-secondary)] sm:table-cell">
+   573→   573→                        {scenario.difficultyLevel}
+   574→   574→                      </td>
+   575→   575→                      <td className="hidden px-5 py-3 text-sm text-[var(--text-secondary)] lg:table-cell">
+   576→   576→                        {scenario.languagePair}
+   577→   577→                      </td>
+   578→   578→                      <td className="px-5 py-3">
+   579→   579→                        <div className="flex items-center gap-1.5">
+   580→   580→                          <span
+   581→   581→                            className={cn(
+   582→   582→                              "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium",
+   583→   583→                              scenario.isPublished
+   584→   584→                                ? "bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-400"
+   585→   585→                                : "bg-yellow-50 text-yellow-700 dark:bg-yellow-950/30 dark:text-yellow-400"
+   586→   586→                            )}
+   587→   587→                          >
+   588→   588→                            {scenario.isPublished ? "Published" : "Draft"}
+   589→   589→                          </span>
+   590→   590→                        </div>
+   591→   591→                      </td>
+   592→   592→                      <td className="hidden px-5 py-3 text-sm text-[var(--text-muted)] lg:table-cell">
+   593→   593→                        {formatDate(scenario.updatedAt)}
+   594→   594→                      </td>
+   595→   595→                      <td className="px-5 py-3">
+   596→   596→                        <div className="flex items-center gap-1">
+   597→   597→                          <button
+   598→   598→                            onClick={() => handleTogglePublished(scenario)}
+   599→   599→                            disabled={toggling === scenario.id}
+   600→   600→                            className="rounded-lg p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-elevated)] hover:text-[var(--text-secondary)] disabled:opacity-50"
+   601→   601→                            title={scenario.isPublished ? "Unpublish" : "Publish"}
+   602→   602→                          >
+   603→   603→                            {toggling === scenario.id ? (
+   604→   604→                              <Loader2 className="h-4 w-4 animate-spin" />
+   605→   605→                            ) : scenario.isPublished ? (
+   606→   606→                              <EyeOff className="h-4 w-4" />
+   607→   607→                            ) : (
+   608→   608→                              <Eye className="h-4 w-4" />
+   609→   609→                            )}
+   610→   610→                          </button>
+   611→   611→                          <button
+   612→   612→                            onClick={() => openEditModal(scenario)}
+   613→   613→                            className="rounded-lg p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-elevated)] hover:text-[var(--accent-primary)]"
+   614→   614→                            title="Edit"
+   615→   615→                          >
+   616→   616→                            <Pencil className="h-4 w-4" />
+   617→   617→                          </button>
+   618→   618→                          <button
+   619→   619→                            onClick={() => handleDelete(scenario.id)}
+   620→   620→                            disabled={deleting === scenario.id}
+   621→   621→                            className="rounded-lg p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--state-error-light)] hover:text-[var(--state-error)] disabled:opacity-50"
+   622→   622→                            title="Delete"
+   623→   623→                          >
+   624→   624→                            {deleting === scenario.id ? (
+   625→   625→                              <Loader2 className="h-4 w-4 animate-spin" />
+   626→   626→                            ) : (
+   627→   627→                              <Trash2 className="h-4 w-4" />
+   628→   628→                            )}
+   629→   629→                          </button>
+   630→   630→                        </div>
+   631→   631→                      </td>
+   632→   632→                    </tr>
+   633→   633→                  ))}
+   634→   634→                </tbody>
+   635→   635→              </table>
+   636→   636→            </div>
+   637→   637→
+   638→   638→            {/* Pagination */}
+   639→   639→            <div className="flex items-center justify-between border-t border-[var(--border-default)] px-5 py-3">
+   640→   640→              <p className="text-xs text-[var(--text-muted)]">
+   641→   641→                Page {page} of {totalPages} — {total} scenarios
+   642→   642→              </p>
+   643→   643→              <div className="flex items-center gap-2">
+   644→   644→                <button
+   645→   645→                  onClick={() => setPage(Math.max(1, page - 1))}
+   646→   646→                  disabled={page <= 1}
+   647→   647→                  className="rounded-lg border border-[var(--border-default)] p-2 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-elevated)] disabled:opacity-50"
+   648→   648→                >
+   649→   649→                  <ChevronLeft className="h-4 w-4" />
+   650→   650→                </button>
+   651→   651→                <button
+   652→   652→                  onClick={() => setPage(Math.min(totalPages, page + 1))}
+   653→   653→                  disabled={page >= totalPages}
+   654→   654→                  className="rounded-lg border border-[var(--border-default)] p-2 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-elevated)] disabled:opacity-50"
+   655→   655→                >
+   656→   656→                  <ChevronRight className="h-4 w-4" />
+   657→   657→                </button>
+   658→   658→              </div>
+   659→   659→            </div>
+   660→   660→          </>
+   661→   661→        )}
+   662→   662→      </div>
+   663→   663→
+   664→   664→      {/* Modal */}
+   665→   665→      {modalOpen && (
+   666→   666→        <ScenarioModal
+   667→   667→          scenario={editingScenario}
+   668→   668→          onClose={() => {
+   669→   669→            setModalOpen(false);
+   670→   670→            setEditingScenario(null);
+   671→   671→          }}
+   672→   672→          onSave={handleSave}
+   673→   673→        />
+   674→   674→      )}
+   675→   675→    </div>
+   676→   676→  );
+   677→   677→}
+   678→   678→
