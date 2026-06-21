@@ -30,6 +30,12 @@ export const metadata: Metadata = {
   title: "Convolo — Conversation, Unlocked.",
   description:
     "Master any language through real conversations with AI. Practice speaking, get instant corrections, and build fluency naturally with Convolo.",
+  viewport: {
+    width: "device-width",
+    initialScale: 1,
+    maximumScale: 1,
+    viewportFit: "cover",
+  },
   keywords: [
     "Convolo",
     "language learning",

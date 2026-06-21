@@ -162,9 +162,12 @@ export default function ConversationPage() {
     : conversation.difficultyLevel;
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] flex-col md:h-screen">
+    <div className="fixed inset-0 z-40 flex flex-col bg-[var(--bg-base)] md:relative md:z-auto">
       {/* ═══ Header ═══ */}
-      <div className="flex items-center justify-between border-b border-[var(--border-default)] bg-[var(--bg-surface)] px-4 py-2.5">
+      <div
+        className="flex items-center justify-between border-b border-[var(--border-default)] bg-[var(--bg-surface)] px-4 py-2.5"
+        style={{ paddingTop: "max(0.625rem, env(safe-area-inset-top, 0.625rem))" }}
+      >
         <div className="flex items-center gap-3">
           {/* Back button (mobile) */}
           <button

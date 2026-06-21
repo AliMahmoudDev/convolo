@@ -69,7 +69,10 @@ export function ChatInput({ isSending, isEnded, onSend }: ChatInputProps) {
 
   if (isEnded) {
     return (
-      <div className="border-t border-[var(--border-default)] bg-[var(--bg-surface)] px-4 py-3">
+      <div
+        className="border-t border-[var(--border-default)] bg-[var(--bg-surface)] px-4 py-3"
+        style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0.75rem))" }}
+      >
         <p className="text-center text-sm text-[var(--text-muted)]">
           This conversation has ended. Start a new one from the Practice page.
         </p>
@@ -78,7 +81,10 @@ export function ChatInput({ isSending, isEnded, onSend }: ChatInputProps) {
   }
 
   return (
-    <div className="border-t border-[var(--border-default)] bg-[var(--bg-surface)] px-4 py-3">
+    <div
+      className="border-t border-[var(--border-default)] bg-[var(--bg-surface)] px-4 py-3"
+      style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0.75rem))" }}
+    >
       <div className="flex items-end gap-2">
         {/* Textarea */}
         <div className="relative flex-1">
