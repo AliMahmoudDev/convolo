@@ -6,7 +6,7 @@ import { Menu, X, LogOut, User, LayoutDashboard } from "lucide-react";
 import { useState } from "react";
 import { useAuthStore, useUserDisplayName, useUserInitial } from "@/stores/auth-store";
 import { ConfirmSignOutDialog } from "@/components/auth/confirm-sign-out";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 export function MobileHeader() {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -17,6 +17,12 @@ export function MobileHeader() {
   const signOut = useAuthStore((s) => s.signOut);
   const displayName = useUserDisplayName();
   const displayInitial = useUserInitial();
+
+  // Hide mobile header in conversation pages (they have their own header)
+  const pathname = usePathname();
+  const isInConversation = pathname.match(/^\/learn\/[a-f0-9-]+$/);
+
+  if (isInConversation) return null;
 
   const handleSignOutClick = () => {
     setMenuOpen(false);

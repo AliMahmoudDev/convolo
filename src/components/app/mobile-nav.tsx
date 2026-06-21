@@ -15,6 +15,12 @@ const navItems = [
 export function MobileNav() {
   const pathname = usePathname();
 
+  // Hide the bottom nav when user is in an active conversation
+  // (the conversation page uses fixed inset-0 for fullscreen)
+  const isInConversation = pathname.match(/^\/learn\/[a-f0-9-]+$/);
+
+  if (isInConversation) return null;
+
   return (
     <nav className="safe-area-bottom fixed right-0 bottom-0 left-0 z-50 border-t border-[var(--border-default)] bg-[var(--bg-surface)] md:hidden">
       <div className="flex items-center justify-around px-2 py-2">
