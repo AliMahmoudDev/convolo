@@ -110,3 +110,24 @@ Stage Summary:
 
 - 21 routes total (all verified: lint ✅ type-check ✅ build ✅ deploy ✅)
 - App interior fully structured and ready for AI integration
+
+---
+
+Task ID: 6
+Agent: Super Z
+Task: Centralized language switching system (Duolingo-style)
+
+Work Log:
+
+- Created `useProfileStore` (Zustand) for shared profile/language state across all pages
+- Updated Dashboard page: Enhanced Language Card with bigger flag, gradient background, "Start Practice" quick action bar, uses shared profile store
+- Updated Learn page: Language selectors now update profile immediately via API + shared store, added "Manage in Dashboard" link, loading spinners on field changes
+- Verified chat header is already display-only (no language switcher)
+- Built and deployed to convolo.vercel.app
+
+Stage Summary:
+
+- Centralized language switching: Dashboard = primary selector, Learn = synced selector, Chat = display-only
+- Shared profile store ensures instant propagation of language changes across all pages
+- Optimistic updates: UI updates immediately, API call in background, reverts on failure
+- Deployed successfully to production

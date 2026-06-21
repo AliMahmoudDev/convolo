@@ -16,7 +16,7 @@
 
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -32,23 +32,15 @@ import {
   Play,
   Trophy,
   Loader2,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SUPPORTED_LANGUAGES, type ProficiencyLevel } from "@/lib/constants";
+import { useProfileStore, useTargetLanguage, useNativeLanguage } from "@/stores/profile-store";
 
 // ═══════════════════════════════════════════
 // Types
 // ═══════════════════════════════════════════
-
-interface UserProfile {
-  id: string;
-  name: string;
-  email: string;
-  nativeLanguage: string;
-  targetLanguage: string | null;
-  proficiencyLevel: ProficiencyLevel;
-  isPro: boolean;
-}
 
 interface Conversation {
   id: string;
@@ -80,25 +72,26 @@ function getLangInfo(code: string) {
 
 export default function DashboardPage() {
   const router = useRouter();
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [showLangPicker, setShowLangPicker] = useState(false);
-  const [isUpdatingLang, setIsUpdatingLang] = useState(false);
 
-  // ─── Fetch profile + conversations ───
+  // Profile from shared store
+  const profile = useProfileStore((s) => s.profile);
+  const fetchProfile = useProfileStore((s) => s.fetchProfile);
+  const updateProfile = useProfileStore((s) => s.updateProfile);
+  const isProfileInitialized = useProfileStore((s) => s.isInitialized);
+  const targetLang = useTargetLanguage();
+  const nativeLang = useNativeLanguage();
+
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [isPageLoading, setIsPageLoading] = useState(true);
+  const [showTargetLangPicker, setShowTargetLangPicker] = useState(false);
+  const [showNativeLangPicker, setShowNativeLangPicker] = useState(false);
+  const [isUpdatingLang, setIsUpdatingLang] = useState<string | null>(null);
+
+  // ─── Fetch profile + conversations on mount ───
   useEffect(() => {
     async function fetchData() {
       try {
-        const [profileRes, convRes] = await Promise.all([
-          fetch("/api/user/profile"),
-          fetch("/api/conversations"),
-        ]);
-
-        const profileData = await profileRes.json();
-        if (profileData.success && profileData.data) {
-          setProfile(profileData.data);
-        }
+        const [_, convRes] = await Promise.all([fetchProfile(), fetch("/api/conversations")]);
 
         const convData = await convRes.json();
         if (convData.success && convData.data) {
@@ -107,38 +100,40 @@ export default function DashboardPage() {
       } catch {
         // Silently fail
       } finally {
-        setIsLoading(false);
+        setIsPageLoading(false);
       }
     }
     fetchData();
-  }, []);
+  }, [fetchProfile]);
 
   // ─── Change target language ───
-  const handleLanguageChange = async (newLang: string) => {
-    if (!profile || isUpdatingLang) return;
-    setIsUpdatingLang(true);
-    setShowLangPicker(false);
+  const handleTargetLangChange = useCallback(
+    async (newLang: string) => {
+      if (isUpdatingLang) return;
+      setIsUpdatingLang(newLang);
+      setShowTargetLangPicker(false);
 
-    try {
-      const res = await fetch("/api/user/profile", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ targetLanguage: newLang }),
-      });
+      await updateProfile({ targetLanguage: newLang });
+      setIsUpdatingLang(null);
+    },
+    [isUpdatingLang, updateProfile]
+  );
 
-      const data = await res.json();
-      if (data.success && data.data) {
-        setProfile(data.data);
-      }
-    } catch {
-      // Silently fail
-    } finally {
-      setIsUpdatingLang(false);
-    }
-  };
+  // ─── Change native language ───
+  const handleNativeLangChange = useCallback(
+    async (newLang: string) => {
+      if (isUpdatingLang) return;
+      setIsUpdatingLang(newLang);
+      setShowNativeLangPicker(false);
+
+      await updateProfile({ nativeLanguage: newLang });
+      setIsUpdatingLang(null);
+    },
+    [isUpdatingLang, updateProfile]
+  );
 
   // ─── Loading state ───
-  if (isLoading) {
+  if (!isProfileInitialized || isPageLoading) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-[var(--accent-primary)]" />
@@ -146,8 +141,6 @@ export default function DashboardPage() {
     );
   }
 
-  const nativeLang = getLangInfo(profile?.nativeLanguage || "en");
-  const targetLang = getLangInfo(profile?.targetLanguage || "es");
   const level = profile?.proficiencyLevel || "beginner";
   const firstName = profile?.name?.split(" ")[0] || "there";
 
@@ -164,12 +157,13 @@ export default function DashboardPage() {
         <p className="text-[var(--text-secondary)]">Ready to practice {targetLang.name} today?</p>
       </div>
 
-      {/* ═══ Language Card (like Duolingo's flag) ═══ */}
+      {/* ═══ Language Card (Duolingo-style) ═══ */}
       <div className="mb-8">
-        <div className="overflow-hidden rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)]">
+        <div className="overflow-hidden rounded-2xl border border-[var(--border-default)] bg-gradient-to-br from-[var(--bg-surface)] to-[var(--accent-light)]/30">
+          {/* Main language display */}
           <div className="flex items-center gap-4 p-5 sm:p-6">
-            {/* Big flag emoji */}
-            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-[var(--accent-light)] text-3xl">
+            {/* Big flag emoji — like Duolingo's course icon */}
+            <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl bg-[var(--accent-light)] text-4xl shadow-sm sm:h-24 sm:w-24 sm:text-5xl">
               {targetLang.flagEmoji}
             </div>
 
@@ -179,61 +173,89 @@ export default function DashboardPage() {
                 I&apos;m learning
               </p>
               <h2
-                className="text-xl font-bold text-[var(--text-primary)]"
+                className="text-2xl font-bold text-[var(--text-primary)] sm:text-3xl"
                 style={{ fontFamily: "var(--font-heading-cfg)" }}
               >
                 {targetLang.name}
               </h2>
-              <div className="mt-1 flex items-center gap-2 text-xs text-[var(--text-secondary)]">
-                <span>
+              <p className="mt-0.5 text-sm text-[var(--text-secondary)]">{targetLang.nativeName}</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                {/* Native language — clickable to change */}
+                <button
+                  onClick={() => setShowNativeLangPicker(!showNativeLangPicker)}
+                  className="inline-flex items-center gap-1 rounded-full bg-[var(--bg-elevated)] px-2.5 py-1 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--accent-light)] hover:text-[var(--accent-primary)]"
+                >
                   {nativeLang.flagEmoji} {nativeLang.name}
-                </span>
+                  <ChevronDown className="h-3 w-3" />
+                </button>
                 <span className="text-[var(--text-muted)]">→</span>
-                <span>
+                {/* Target language — clickable to change */}
+                <button
+                  onClick={() => setShowTargetLangPicker(!showTargetLangPicker)}
+                  className="inline-flex items-center gap-1 rounded-full bg-[var(--accent-light)] px-2.5 py-1 text-xs font-medium text-[var(--accent-primary)] transition-colors hover:bg-[var(--accent-primary)] hover:text-white"
+                >
                   {targetLang.flagEmoji} {targetLang.name}
+                  <ChevronDown className="h-3 w-3" />
+                </button>
+                <span className="inline-flex items-center rounded-full bg-[var(--bg-elevated)] px-2.5 py-1 text-xs text-[var(--text-secondary)] capitalize">
+                  {level}
                 </span>
-                <span className="text-[var(--text-muted)]">·</span>
-                <span className="capitalize">{level}</span>
                 {profile?.isPro && (
-                  <>
-                    <span className="text-[var(--text-muted)]">·</span>
-                    <span className="inline-flex items-center gap-0.5 font-medium text-[var(--color-gold)]">
-                      <Crown className="h-3 w-3" /> Pro
-                    </span>
-                  </>
+                  <span className="inline-flex items-center gap-0.5 rounded-full bg-[var(--color-gold-light)] px-2.5 py-1 text-xs font-medium text-[var(--color-gold)]">
+                    <Crown className="h-3 w-3" /> Pro
+                  </span>
                 )}
               </div>
-            </div>
 
-            {/* Change language button */}
-            <div className="relative">
-              <button
-                onClick={() => setShowLangPicker(!showLangPicker)}
-                disabled={isUpdatingLang}
-                className="flex items-center gap-1.5 rounded-xl bg-[var(--accent-light)] px-4 py-2.5 text-sm font-medium text-[var(--accent-primary)] transition-colors hover:bg-[var(--accent-primary)] hover:text-white disabled:opacity-50"
-              >
-                {isUpdatingLang ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Globe className="h-4 w-4" />
-                )}
-                Change
-                <ChevronDown className="h-3.5 w-3.5" />
-              </button>
-
-              {/* Language dropdown */}
-              {showLangPicker && (
-                <div className="absolute top-full right-0 z-50 mt-2 w-64 rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-2 shadow-[var(--shadow-lg)]">
+              {/* ═══ Native language picker (inline dropdown) ═══ */}
+              {showNativeLangPicker && (
+                <div className="mt-2 w-72 rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-2 shadow-[var(--shadow-lg)]">
                   <p className="mb-2 px-3 text-[10px] font-medium tracking-wider text-[var(--text-muted)] uppercase">
-                    Switch target language
+                    I speak (native language)
+                  </p>
+                  {SUPPORTED_LANGUAGES.filter(
+                    (l) => l.code !== (profile?.targetLanguage || "ar")
+                  ).map((lang) => (
+                    <button
+                      key={lang.code}
+                      onClick={() => handleNativeLangChange(lang.code)}
+                      disabled={!!isUpdatingLang}
+                      className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors hover:bg-[var(--bg-elevated)] disabled:opacity-50 ${
+                        lang.code === profile?.nativeLanguage
+                          ? "bg-[var(--accent-light)] text-[var(--accent-primary)]"
+                          : "text-[var(--text-primary)]"
+                      }`}
+                    >
+                      <span className="text-xl">{lang.flagEmoji}</span>
+                      <div className="min-w-0 flex-1 text-left">
+                        <span className="font-medium">{lang.name}</span>
+                        <span className="ml-1.5 text-xs text-[var(--text-muted)]">
+                          {lang.nativeName}
+                        </span>
+                      </div>
+                      {isUpdatingLang === lang.code && <Loader2 className="h-4 w-4 animate-spin" />}
+                      {lang.code === profile?.nativeLanguage && isUpdatingLang !== lang.code && (
+                        <Check className="h-4 w-4" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* ═══ Target language picker (inline dropdown) ═══ */}
+              {showTargetLangPicker && (
+                <div className="mt-2 w-72 rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-2 shadow-[var(--shadow-lg)]">
+                  <p className="mb-2 px-3 text-[10px] font-medium tracking-wider text-[var(--text-muted)] uppercase">
+                    I want to learn (target language)
                   </p>
                   {SUPPORTED_LANGUAGES.filter(
                     (l) => l.code !== (profile?.nativeLanguage || "en")
                   ).map((lang) => (
                     <button
                       key={lang.code}
-                      onClick={() => handleLanguageChange(lang.code)}
-                      className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors hover:bg-[var(--bg-elevated)] ${
+                      onClick={() => handleTargetLangChange(lang.code)}
+                      disabled={!!isUpdatingLang}
+                      className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors hover:bg-[var(--bg-elevated)] disabled:opacity-50 ${
                         lang.code === profile?.targetLanguage
                           ? "bg-[var(--accent-light)] text-[var(--accent-primary)]"
                           : "text-[var(--text-primary)]"
@@ -246,12 +268,46 @@ export default function DashboardPage() {
                           {lang.nativeName}
                         </span>
                       </div>
-                      {lang.code === profile?.targetLanguage && <Check className="h-4 w-4" />}
+                      {isUpdatingLang === lang.code && <Loader2 className="h-4 w-4 animate-spin" />}
+                      {lang.code === profile?.targetLanguage && isUpdatingLang !== lang.code && (
+                        <Check className="h-4 w-4" />
+                      )}
                     </button>
                   ))}
                 </div>
               )}
             </div>
+
+            {/* Change language button — opens target language picker */}
+            <div className="relative">
+              <button
+                onClick={() => setShowTargetLangPicker(!showTargetLangPicker)}
+                disabled={!!isUpdatingLang}
+                className="flex items-center gap-1.5 rounded-xl bg-[var(--accent-primary)] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-[var(--accent-hover)] hover:shadow-md disabled:opacity-50"
+              >
+                {isUpdatingLang ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Globe className="h-4 w-4" />
+                )}
+                Change
+                <ChevronDown className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Quick start bar */}
+          <div className="border-t border-[var(--border-default)]/50 bg-[var(--bg-surface)]/50 px-5 py-3 sm:px-6">
+            <Link
+              href="/learn"
+              className="flex items-center justify-between rounded-xl bg-[var(--accent-primary)] px-4 py-2.5 text-sm font-semibold text-white transition-all hover:bg-[var(--accent-hover)] hover:shadow-md"
+            >
+              <span className="flex items-center gap-2">
+                <Play className="h-4 w-4" />
+                Start {targetLang.name} Practice
+              </span>
+              <ArrowRight className="h-4 w-4" />
+            </Link>
           </div>
         </div>
       </div>
@@ -445,9 +501,15 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Click outside to close lang picker */}
-      {showLangPicker && (
-        <div className="fixed inset-0 z-40" onClick={() => setShowLangPicker(false)} />
+      {/* Click outside to close lang pickers */}
+      {(showTargetLangPicker || showNativeLangPicker) && (
+        <div
+          className="fixed inset-0 z-40"
+          onClick={() => {
+            setShowTargetLangPicker(false);
+            setShowNativeLangPicker(false);
+          }}
+        />
       )}
     </div>
   );
