@@ -118,13 +118,19 @@ export const useProfileStore = create<ProfileState & ProfileActions>((set, get) 
         return data.data;
       }
 
-      // Revert on failure
+      // Revert on failure — log the reason
+      console.error("[ProfileStore] Update failed:", {
+        status: res.status,
+        data,
+        updates,
+      });
       if (currentProfile) {
         set({ profile: currentProfile });
       }
       return null;
-    } catch {
-      // Revert on error
+    } catch (err) {
+      // Revert on error — log the exception
+      console.error("[ProfileStore] Update exception:", err, { updates });
       if (currentProfile) {
         set({ profile: currentProfile });
       }
