@@ -4,12 +4,19 @@
  * GET /api/admin/scenarios — List all scenarios (including unpublished)
  * POST /api/admin/scenarios — Create new scenario
  * PUT /api/admin/scenarios — Update scenario
+ * DELETE /api/admin/scenarios — Delete scenario
+ *
+ * Enrichment fields: keyVocabulary, culturalNotes, estimatedMinutes, systemPrompt
+ * Language pair: Constructed from nativeLanguage + targetLanguage (NOT hardcoded "en-")
  */
 
 import { NextRequest } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
 import { db, generateId } from "@/lib/db";
 import { errorResponse, successResponse, parseRequestBody } from "@/lib/api-helpers";
+
+const SCENARIO_FIELDS =
+  "id, title, description, languagePair, category, difficultyLevel, openingLine, keyVocabulary, culturalNotes, estimatedMinutes, systemPrompt, isPremium, isPublished, sortOrder, createdAt, updatedAt";
 
 export async function GET(request: NextRequest) {
   try {
@@ -27,12 +34,7 @@ export async function GET(request: NextRequest) {
 
     const offset = (page - 1) * limit;
 
-    let query = db
-      .from("scenarios")
-      .select(
-        "id, title, description, languagePair, category, difficultyLevel, openingLine, isPremium, isPublished, sortOrder, createdAt, updatedAt",
-        { count: "exact" }
-      );
+    let query = db.from("scenarios").select(SCENARIO_FIELDS, { count: "exact" });
 
     // Search
     if (search) {
@@ -89,19 +91,27 @@ export async function POST(request: NextRequest) {
       description: string;
       category: string;
       difficultyLevel: string;
-      targetLanguage: string;
-      openingLine: string;
-      isPremium?: boolean;
-      isPublished?: boolean;
+      nativeLanguage?: string;
+      targetLanguage?: string;
+      openingLine?: string;
+      keyVocabulary?: string[];
+      culturalNotes?: string;
+      estimatedMinutes?: number | null;
       systemPrompt?: string;
       languagePair?: string;
-      nativeLanguage?: string;
+      isPremium?: boolean;
+      isPublished?: boolean;
     }>(request);
 
     if (!body || !body.title || !body.description || !body.category) {
-      return errorResponse("VALIDATION_ERROR", "title, description, and category are required", 400);
+      return errorResponse(
+        "VALIDATION_ERROR",
+        "title, description, and category are required",
+        400
+      );
     }
 
+    // Build language pair from nativeLanguage + targetLanguage (NOT hardcoded "en-")
     const nativeLang = body.nativeLanguage || "en";
     const targetLang = body.targetLanguage || "ar";
     const languagePair = body.languagePair || `${nativeLang}-${targetLang}`;
@@ -122,15 +132,16 @@ export async function POST(request: NextRequest) {
           body.systemPrompt ||
           `You are a ${targetLang} language conversation partner. Help the user practice ${targetLang} through natural conversation. Provide corrections and feedback when they make mistakes.`,
         openingLine: body.openingLine || "Hello! Let's start practicing.",
+        keyVocabulary: Array.isArray(body.keyVocabulary) ? body.keyVocabulary : [],
+        culturalNotes: body.culturalNotes || null,
+        estimatedMinutes: body.estimatedMinutes || null,
         isPremium: body.isPremium || false,
         isPublished: body.isPublished || false,
         sortOrder: 0,
         createdAt: now,
         updatedAt: now,
       })
-      .select(
-        "id, title, description, languagePair, category, difficultyLevel, openingLine, isPremium, isPublished, sortOrder, createdAt, updatedAt"
-      )
+      .select(SCENARIO_FIELDS)
       .single();
 
     if (dbError) {
@@ -158,11 +169,16 @@ export async function PUT(request: NextRequest) {
       description?: string;
       category?: string;
       difficultyLevel?: string;
+      nativeLanguage?: string;
       targetLanguage?: string;
       openingLine?: string;
+      keyVocabulary?: string[];
+      culturalNotes?: string;
+      estimatedMinutes?: number | null;
+      systemPrompt?: string;
+      languagePair?: string;
       isPremium?: boolean;
       isPublished?: boolean;
-      systemPrompt?: string;
     }>(request);
 
     if (!body || !body.id) {
@@ -180,17 +196,49 @@ export async function PUT(request: NextRequest) {
     if (body.isPremium !== undefined) updates.isPremium = body.isPremium;
     if (body.isPublished !== undefined) updates.isPublished = body.isPublished;
     if (body.systemPrompt !== undefined) updates.systemPrompt = body.systemPrompt;
-    if (body.targetLanguage !== undefined) {
-      updates.languagePair = `en-${body.targetLanguage}`;
+    if (body.keyVocabulary !== undefined) updates.keyVocabulary = body.keyVocabulary;
+    if (body.culturalNotes !== undefined) updates.culturalNotes = body.culturalNotes;
+    if (body.estimatedMinutes !== undefined) updates.estimatedMinutes = body.estimatedMinutes;
+
+    // FIX: Build language pair from nativeLanguage + targetLanguage
+    // NOT hardcoded "en-" anymore
+    if (body.targetLanguage !== undefined || body.nativeLanguage !== undefined) {
+      // If we have both, use them directly
+      if (body.nativeLanguage && body.targetLanguage) {
+        updates.languagePair = `${body.nativeLanguage}-${body.targetLanguage}`;
+      } else if (body.targetLanguage) {
+        // Only targetLanguage provided — need to fetch existing nativeLanguage
+        const { data: existing } = await db
+          .from("scenarios")
+          .select("languagePair")
+          .eq("id", body.id)
+          .maybeSingle();
+
+        const existingNative = existing?.languagePair?.split("-")[0] || "en";
+        updates.languagePair = `${existingNative}-${body.targetLanguage}`;
+      } else if (body.nativeLanguage) {
+        // Only nativeLanguage provided — need to fetch existing targetLanguage
+        const { data: existing } = await db
+          .from("scenarios")
+          .select("languagePair")
+          .eq("id", body.id)
+          .maybeSingle();
+
+        const existingTarget = existing?.languagePair?.split("-")[1] || "ar";
+        updates.languagePair = `${body.nativeLanguage}-${existingTarget}`;
+      }
+    }
+
+    // Also support explicit languagePair override
+    if (body.languagePair !== undefined) {
+      updates.languagePair = body.languagePair;
     }
 
     const { data: scenario, error: dbError } = await db
       .from("scenarios")
       .update(updates)
       .eq("id", body.id)
-      .select(
-        "id, title, description, languagePair, category, difficultyLevel, openingLine, isPremium, isPublished, sortOrder, createdAt, updatedAt"
-      )
+      .select(SCENARIO_FIELDS)
       .maybeSingle();
 
     if (dbError) {

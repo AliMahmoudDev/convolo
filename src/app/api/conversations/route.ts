@@ -155,8 +155,10 @@ export async function POST(request: NextRequest) {
     }
 
     // 8. Generate AI opening message
+    // Use scenario's custom systemPrompt if available, otherwise build default
+    const scenarioSystemPrompt = scenario?.systemPrompt as string | undefined;
     const scenarioContext = scenario
-      ? `Scenario: ${scenario.title}. ${scenario.description}. ${scenario.openingLine ? `Start the conversation with: "${scenario.openingLine}"` : ""}`
+      ? `Scenario: ${scenario.title}. ${scenario.description}. ${scenario.openingLine ? `Start the conversation with: "${scenario.openingLine}"` : ""}${scenario.keyVocabulary ? ` Key vocabulary to use: ${(scenario.keyVocabulary as string[]).join(", ")}` : ""}${scenario.culturalNotes ? ` Cultural notes: ${scenario.culturalNotes}` : ""}`
       : "Free conversation — the user wants to practice casually. Start with a friendly greeting and ask them about their day or interests.";
 
     let openingMessage = "Hello! Let's start practicing. How are you today?";
@@ -169,12 +171,11 @@ export async function POST(request: NextRequest) {
       const [sourceLang, targetLang] = languagePair.split("-");
       const actualTarget = targetLang === dbUser.nativeLanguage ? sourceLang : targetLang;
 
-      const systemPrompt = buildSystemPrompt(
-        actualTarget,
-        dbUser.nativeLanguage,
-        safeDifficulty,
-        scenarioContext
-      );
+      // Use custom systemPrompt from scenario if available, otherwise build default
+      const systemPrompt =
+        scenarioSystemPrompt && scenarioSystemPrompt.trim()
+          ? scenarioSystemPrompt
+          : buildSystemPrompt(actualTarget, dbUser.nativeLanguage, safeDifficulty, scenarioContext);
 
       const aiProvider = getAIProvider();
       const aiResponse = await aiProvider.chat({
