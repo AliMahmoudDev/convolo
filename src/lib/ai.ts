@@ -135,10 +135,11 @@ You MUST respond with a valid JSON object. No markdown, no code fences, just pur
    - "She dont know" → "She doesn't know" is a CORRECTION (wrong grammar)
    - "Im going" → "I'm going" is a HINT (missing apostrophe)
    - If the user uses informal/shortened forms naturally, don't flag them at all.
-8. NEVER include markdown formatting, code fences, or any text outside the JSON object.
-9. If the user says something inappropriate, respond politely in ${targetName} and redirect to the lesson. Set corrections to [] and include no vocabulary or grammar.
-10. Keep the conversation engaging — don't just correct, also respond naturally to what they said.
-11. CRITICAL: The user is LEARNING. Even small mistakes like wrong gender agreement, missing accents, wrong verb conjugation, wrong word order — ALL of these should be corrected, especially for beginners.
+10. CRITICAL: ONLY correct the user's CURRENT/LATEST message. NEVER re-correct mistakes from previous messages that were already corrected. Each response should only check the most recent user message.
+11. NEVER include markdown formatting, code fences, or any text outside the JSON object.
+12. If the user says something inappropriate, respond politely in ${targetName} and redirect to the lesson. Set corrections to [] and include no vocabulary or grammar.
+13. Keep the conversation engaging — don't just correct, also respond naturally to what they said.
+14. CRITICAL: The user is LEARNING. Even small mistakes like wrong gender agreement, missing accents, wrong verb conjugation, wrong word order — ALL of these should be corrected, especially for beginners.
 
 ## SAFETY
 - Never discuss harmful, illegal, or explicit topics.
@@ -297,7 +298,12 @@ function isStyleHint(original: string, corrected: string): boolean {
   const orig = original.trim();
   const corr = corrected.trim();
 
-  // Remove all apostrophes, hyphens, spaces, and lowercase everything
+  // Check if only capitalization changed
+  if (orig.toLowerCase() === corr.toLowerCase()) {
+    return true;
+  }
+
+  // Remove all apostrophes, hyphens, and lowercase everything
   // If they're the same after that, it's just a punctuation/style difference
   const normalize = (s: string) =>
     s.toLowerCase().replace(/[''`ʼ‛-]/g, "").replace(/\s+/g, " ").trim();
@@ -306,14 +312,54 @@ function isStyleHint(original: string, corrected: string): boolean {
     return true; // Only difference is apostrophe/punctuation/spaces
   }
 
-  // Check if only capitalization changed
-  if (orig.toLowerCase() === corr.toLowerCase()) {
-    return true;
+  // Split into words and check word-by-word
+  // Handles multi-word cases like "Iam here" → "I'm here"
+  const origWords = orig.split(/\s+/);
+  const corrWords = corr.split(/\s+/);
+
+  if (origWords.length === corrWords.length) {
+    let allWordsAreStyleOnly = true;
+    for (let i = 0; i < origWords.length; i++) {
+      const ow = origWords[i].toLowerCase().replace(/[''`ʼ‛-]/g, "");
+      const cw = corrWords[i].toLowerCase().replace(/[''`ʼ‛-]/g, "");
+
+      if (ow === cw) {
+        // Same word after removing apostrophes — style difference only
+        continue;
+      }
+
+      // Check if it's a contraction without apostrophe: "iam" → "im", "dont" → "dont"
+      const contractionMap: Record<string, string> = {
+        "iam": "im", "im": "im", "ive": "ive", "id": "id", "ill": "ill",
+        "youre": "youre", "youve": "youve", "youll": "youll", "youd": "youd",
+        "hes": "hes", "shes": "shes", "its": "its", "were": "were",
+        "theyre": "theyre", "theyve": "theyve", "theyll": "theyll", "theyd": "theyd",
+        "dont": "dont", "doesnt": "doesnt", "didnt": "didnt", "wont": "wont",
+        "wouldnt": "wouldnt", "couldnt": "couldnt", "shouldnt": "shouldnt",
+        "isnt": "isnt", "arent": "arent", "wasnt": "wasnt", "werent": "werent",
+        "havent": "havent", "hasnt": "hasnt", "hadnt": "hadnt", "cant": "cant",
+        "mustnt": "mustnt", "lets": "lets", "whos": "whos", "whats": "whats",
+      };
+
+      const owNormalized = contractionMap[ow] || ow;
+      const cwNormalized = contractionMap[cw] || cw;
+
+      if (owNormalized !== cwNormalized) {
+        allWordsAreStyleOnly = false;
+        break;
+      }
+    }
+
+    if (allWordsAreStyleOnly) {
+      return true;
+    }
   }
 
-  // Common contraction patterns: "Iam" → "I'm", "dont" → "don't", "cant" → "can't"
+  // Single-word contraction pattern check
   const contractionPattern = /^(im|ive|id|ill|youre|youve|youll|youd|hes|shes|its|were|theyre|theyve|theyll|theyd|dont|doesnt|didnt|wont|wouldnt|couldnt|shouldnt|isnt|arent|wasnt|werent|havent|hasnt|hadnt|cant|mustnt|lets|whos|whats|wheres|whens|whys|hows|iam)$/i;
-  if (contractionPattern.test(orig.replace(/[^a-zA-Z]/g, "")) || contractionPattern.test(corr.replace(/[^a-zA-Z]/g, ""))) {
+  const origClean = orig.replace(/[^a-zA-Z]/g, "");
+  const corrClean = corr.replace(/[^a-zA-Z]/g, "");
+  if (contractionPattern.test(origClean) || contractionPattern.test(corrClean)) {
     return true;
   }
 
