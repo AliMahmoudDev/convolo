@@ -166,9 +166,11 @@ export function useSpeech() {
     (text: string, langCode: string = "en") => {
       if (typeof window === "undefined" || !window.speechSynthesis) return;
 
-      // Stop any current speech
+      // ─── Reset speech engine ───
+      // Chrome bug: after cancel(), the engine stays paused.
+      // resume() alone isn't enough because speak() runs in the same tick.
+      // The reliable fix: cancel → resume → brief yield → speak
       window.speechSynthesis.cancel();
-      window.speechSynthesis.resume(); // Chrome fix: unblock engine after cancel
 
       if (resumeTimerRef.current) {
         clearInterval(resumeTimerRef.current);
@@ -220,7 +222,15 @@ export function useSpeech() {
         }
       };
 
-      window.speechSynthesis.speak(utterance);
+      // Chrome fix: yield to the event loop after cancel()
+      // This gives the engine time to fully reset before we speak again.
+      // Without this, Chrome silently drops the utterance after cancel().
+      // Using requestAnimationFrame is more reliable than setTimeout(fn, 0)
+      // because it guarantees at least one paint cycle has passed.
+      requestAnimationFrame(() => {
+        window.speechSynthesis.resume();
+        window.speechSynthesis.speak(utterance);
+      });
     },
     [findVoice]
   );
