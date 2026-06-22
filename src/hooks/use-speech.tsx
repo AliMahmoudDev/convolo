@@ -1,14 +1,26 @@
 /**
- * useSpeech — TTS using server-side audio
+ * useSpeech — TTS using server-side audio with Web Audio API playback
  *
- * ON-SCREEN DEBUG: Shows debug info as toast messages on screen
- * so you can see what's happening on a phone (no console needed).
+ * Why Web Audio API instead of <audio> element:
+ * - <audio> element doesn't support WAV on many mobile browsers
+ * - Web Audio API decodeAudioData() works with WAV on ALL browsers
+ * - Same approach used by production audio apps
  */
 
 "use client";
 
 import { useState, useCallback, useRef, useEffect, useContext, createContext } from "react";
 import type { ReactNode } from "react";
+
+// ═══════════════════════════════════════════
+// Context
+// ═══════════════════════════════════════════
+
+const SpeechContext = createContext({ voicesReady: true });
+
+export function SpeechProvider({ children }: { children: ReactNode }) {
+  return <SpeechContext.Provider value={{ voicesReady: true }}>{children}</SpeechContext.Provider>;
+}
 
 // ═══════════════════════════════════════════
 // On-screen Debug Toast System
@@ -18,7 +30,6 @@ interface DebugMsg {
   id: number;
   text: string;
   type: "info" | "ok" | "error";
-  time: number;
 }
 
 let debugListeners: Array<(msgs: DebugMsg[]) => void> = [];
@@ -26,15 +37,11 @@ let debugMsgs: DebugMsg[] = [];
 let debugId = 0;
 
 function addDebug(text: string, type: "info" | "ok" | "error" = "info") {
-  const msg: DebugMsg = { id: ++debugId, text, type, time: Date.now() };
-  debugMsgs = [...debugMsgs.slice(-6), msg]; // Keep last 7 messages
+  const msg: DebugMsg = { id: ++debugId, text, type };
+  debugMsgs = [...debugMsgs.slice(-6), msg];
   debugListeners.forEach((fn) => fn([...debugMsgs]));
-  // Also log to console for desktop users
-  if (type === "error") console.error("[TTS]", text);
-  else console.log("[TTS]", text);
 }
 
-/** Component to show on screen — import and render once in your page */
 export function TTSDebugOverlay() {
   const [msgs, setMsgs] = useState<DebugMsg[]>([]);
 
@@ -85,26 +92,18 @@ export function TTSDebugOverlay() {
 }
 
 // ═══════════════════════════════════════════
-// Context
-// ═══════════════════════════════════════════
-
-const SpeechContext = createContext({ voicesReady: true });
-
-export function SpeechProvider({ children }: { children: ReactNode }) {
-  return <SpeechContext.Provider value={{ voicesReady: true }}>{children}</SpeechContext.Provider>;
-}
-
-// ═══════════════════════════════════════════
 // Hook
 // ═══════════════════════════════════════════
 
-const LOAD_TIMEOUT_MS = 8000;
+const LOAD_TIMEOUT_MS = 10000;
 
 export function useSpeech() {
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const sourceRef = useRef<AudioBufferSourceNode | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
       cleanup();
@@ -116,15 +115,14 @@ export function useSpeech() {
       clearTimeout(timeoutRef.current);
       timeoutRef.current = null;
     }
-    if (audioRef.current) {
-      audioRef.current.onended = null;
-      audioRef.current.onerror = null;
-      audioRef.current.oncanplay = null;
-      audioRef.current.onplay = null;
-      audioRef.current.pause();
-      audioRef.current.removeAttribute("src");
-      audioRef.current.load();
-      audioRef.current = null;
+    if (sourceRef.current) {
+      try {
+        sourceRef.current.stop();
+      } catch {}
+      try {
+        sourceRef.current.disconnect();
+      } catch {}
+      sourceRef.current = null;
     }
   }, []);
 
@@ -132,67 +130,71 @@ export function useSpeech() {
     (text: string, langCode: string = "en") => {
       addDebug(`speak("${text}", "${langCode}")`, "info");
       cleanup();
-
       setIsSpeaking(true);
-      addDebug("isSpeaking → true", "info");
-
-      const url = `/api/tts?text=${encodeURIComponent(text)}&lang=${encodeURIComponent(langCode)}`;
-      addDebug(`URL: /api/tts?text=...&lang=${langCode}`, "info");
+      addDebug("Fetching audio...", "info");
 
       // Safety timeout
       timeoutRef.current = setTimeout(() => {
-        addDebug("⏰ TIMEOUT! API didn't respond in 8s", "error");
+        addDebug("⏰ TIMEOUT — no response", "error");
         cleanup();
         setIsSpeaking(false);
       }, LOAD_TIMEOUT_MS);
 
-      const audio = new Audio();
-      audioRef.current = audio;
+      const url = `/api/tts?text=${encodeURIComponent(text)}&lang=${encodeURIComponent(langCode)}`;
 
-      audio.onplay = () => {
-        addDebug("🎵 PLAYING! Audio started!", "ok");
-        if (timeoutRef.current) {
-          clearTimeout(timeoutRef.current);
-          timeoutRef.current = null;
-        }
-      };
+      fetch(url)
+        .then((res) => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          addDebug(`Got response (${res.headers.get("Content-Type")})`, "info");
+          return res.arrayBuffer();
+        })
+        .then((arrayBuffer) => {
+          addDebug(`Audio data: ${arrayBuffer.byteLength} bytes`, "info");
 
-      audio.oncanplay = () => {
-        addDebug("Audio loaded, ready to play", "ok");
-        if (timeoutRef.current) {
-          clearTimeout(timeoutRef.current);
-          timeoutRef.current = null;
-        }
-      };
+          // Create AudioContext if needed
+          if (!audioContextRef.current) {
+            audioContextRef.current = new (
+              window.AudioContext || (window as any).webkitAudioContext
+            )();
+          }
+          const ctx = audioContextRef.current;
 
-      audio.onended = () => {
-        addDebug("Playback finished", "ok");
-        setIsSpeaking(false);
-      };
+          // Resume if suspended (mobile browsers require user interaction)
+          if (ctx.state === "suspended") {
+            addDebug("Resuming AudioContext...", "info");
+            ctx.resume();
+          }
 
-      audio.onerror = () => {
-        const errCode = audio.error?.code;
-        const codes: Record<number, string> = {
-          1: "ABORTED",
-          2: "NETWORK_ERROR",
-          3: "DECODE_ERROR",
-          4: "FORMAT_NOT_SUPPORTED",
-        };
-        addDebug(`❌ Audio error: ${codes[errCode || 0] || "unknown"} (code ${errCode})`, "error");
-        cleanup();
-        setIsSpeaking(false);
-      };
+          // Decode the audio data — this works with WAV on ALL browsers
+          return ctx.decodeAudioData(arrayBuffer);
+        })
+        .then((audioBuffer) => {
+          addDebug("Decoded OK, playing!", "ok");
 
-      audio.src = url;
-      addDebug("Calling audio.play()...", "info");
+          // Clear timeout
+          if (timeoutRef.current) {
+            clearTimeout(timeoutRef.current);
+            timeoutRef.current = null;
+          }
 
-      audio
-        .play()
-        .then(() => {
-          addDebug("play() succeeded!", "ok");
+          const ctx = audioContextRef.current!;
+
+          // Create and play source
+          const source = ctx.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(ctx.destination);
+          sourceRef.current = source;
+
+          source.onended = () => {
+            setIsSpeaking(false);
+            addDebug("Playback finished", "ok");
+          };
+
+          source.start(0);
+          addDebug("🎵 PLAYING!", "ok");
         })
         .catch((err) => {
-          addDebug(`❌ play() failed: ${err?.name} — ${err?.message}`, "error");
+          addDebug(`❌ Error: ${err?.message || err}`, "error");
           cleanup();
           setIsSpeaking(false);
         });
@@ -201,7 +203,7 @@ export function useSpeech() {
   );
 
   const stop = useCallback(() => {
-    addDebug("stop() called", "info");
+    addDebug("Stopped", "info");
     cleanup();
     setIsSpeaking(false);
   }, [cleanup]);
