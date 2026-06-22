@@ -3,10 +3,11 @@
  *
  * Architecture:
  * ────────────
- * - SpeechProvider: loads voices ONCE at app root, shares via context
+ * - SpeechProvider: loads voices at app root, shares via context
  * - useSpeech(): consumes context, each instance has own isSpeaking state
  * - Optimistic UI: isSpeaking goes true immediately on click
- * - Safety timeout: resets isSpeaking if onstart never fires (silent failure)
+ * - Fresh voice lookup: speak() calls getVoices() directly (not stale cache)
+ * - Retry on silent failure: if onstart doesn't fire, retries once
  * - Double-RAF Chrome fix with cancel guard
  *
  * Chrome SpeechSynthesis Bugs Handled:
@@ -14,7 +15,9 @@
  * 1. cancel() pauses engine → double-RAF + resume() before every speak()
  * 2. Long speech pauses after ~15s → resume timer for long text only
  * 3. getVoices() returns [] initially → context waits for voiceschanged
- * 4. Silent failure after cancel/language change → optimistic UI + safety timeout
+ * 4. Silent failure after cancel/language change → optimistic UI + retry
+ * 5. voice/lang conflict → set ONLY voice (not lang) when voice is found
+ * 6. Stale cached voice objects → fresh getVoices() inside speak()
  */
 
 "use client";
@@ -66,6 +69,10 @@ function scoreVoice(voice: SpeechSynthesisVoice, langCode: string): number {
   return 0;
 }
 
+/**
+ * Find the best voice for a language code from a list of voices.
+ * Prefers local voices over network voices (more reliable, always available).
+ */
 function findBestVoice(
   voices: SpeechSynthesisVoice[],
   langCode: string
@@ -79,12 +86,25 @@ function findBestVoice(
       bestScore = score;
       best = voice;
     } else if (score === bestScore && best && score > 0) {
-      // Prefer cloud voices — better quality
-      if (!voice.localService && best.localService) best = voice;
+      // Prefer LOCAL voices — they're always available, no network dependency
+      // Google network voices can fail silently if not loaded yet
+      if (voice.localService && !best.localService) best = voice;
     }
   }
 
   return best;
+}
+
+/**
+ * Get fresh voices directly from the browser.
+ * This is more reliable than using cached voices because:
+ * - Chrome can invalidate voice objects after certain events
+ * - Network voices may not be available when cached voices were stored
+ * - Fresh voices are guaranteed to be valid and usable
+ */
+function getFreshVoices(): SpeechSynthesisVoice[] {
+  if (typeof window === "undefined" || !window.speechSynthesis) return [];
+  return window.speechSynthesis.getVoices();
 }
 
 // ═══════════════════════════════════════════
@@ -94,13 +114,11 @@ function findBestVoice(
 interface SpeechContextValue {
   voices: SpeechSynthesisVoice[];
   voicesReady: boolean;
-  findVoice: (langCode: string) => SpeechSynthesisVoice | null;
 }
 
 const SpeechContext = createContext<SpeechContextValue>({
   voices: [],
   voicesReady: false,
-  findVoice: () => null,
 });
 
 // ═══════════════════════════════════════════
@@ -134,12 +152,8 @@ export function SpeechProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const findVoice = useCallback((langCode: string) => findBestVoice(voices, langCode), [voices]);
-
   return (
-    <SpeechContext.Provider value={{ voices, voicesReady, findVoice }}>
-      {children}
-    </SpeechContext.Provider>
+    <SpeechContext.Provider value={{ voices, voicesReady }}>{children}</SpeechContext.Provider>
   );
 }
 
@@ -147,13 +161,15 @@ export function SpeechProvider({ children }: { children: ReactNode }) {
 // Hook — use in any component
 // ═══════════════════════════════════════════
 
-/** Time to wait for onstart before assuming silent failure */
-const SAFETY_TIMEOUT_MS = 2000;
+/** Time to wait for onstart before retrying */
+const FIRST_ATTEMPT_TIMEOUT_MS = 1500;
+/** Time to wait for onstart on retry before giving up */
+const RETRY_TIMEOUT_MS = 2500;
 /** Chrome 15s pause bug threshold */
 const LONG_TEXT_THRESHOLD = 100;
 
 export function useSpeech() {
-  const { findVoice, voicesReady } = useContext(SpeechContext);
+  const { voicesReady } = useContext(SpeechContext);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const resumeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const safetyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -161,6 +177,7 @@ export function useSpeech() {
   // to detect if the speech was cancelled while they were queued
   const speakGenerationRef = useRef(0);
   const startFiredRef = useRef(false);
+  const retryCountRef = useRef(0);
 
   // Clean up on unmount
   useEffect(() => {
@@ -184,6 +201,55 @@ export function useSpeech() {
     }
   }, []);
 
+  /**
+   * Create a fully configured utterance.
+   * KEY INSIGHT: When a voice is found, we set ONLY the voice — NOT utterance.lang.
+   * Chrome has a bug where setting both voice AND lang can cause a conflict:
+   * Chrome reads utterance.lang, overrides the voice selection, and falls back
+   * to the default (English) voice. By setting only the voice object, Chrome
+   * uses the correct language from the voice itself.
+   *
+   * When NO voice is found, we set ONLY utterance.lang (no voice) and let
+   * Chrome try to find a matching voice by language tag.
+   */
+  const createUtterance = useCallback(
+    (text: string, langCode: string): SpeechSynthesisUtterance => {
+      const utterance = new SpeechSynthesisUtterance(text);
+
+      // Always get FRESH voices directly from the browser.
+      // Cached voices from the Provider can be stale — Chrome may have
+      // invalidated them, or network voices may not have been loaded yet.
+      const freshVoices = getFreshVoices();
+      const voice = findBestVoice(freshVoices, langCode);
+
+      if (voice) {
+        // Found a voice — set ONLY the voice, NOT the lang.
+        // The voice object already knows its language.
+        // Setting utterance.lang alongside voice causes Chrome to
+        // sometimes ignore the voice and use the default (English).
+        utterance.voice = voice;
+      } else {
+        // No voice found — set ONLY the lang.
+        // Chrome will try to find a voice matching this language tag.
+        // If no matching voice exists, Chrome uses the default voice
+        // which is typically English — this is the best we can do.
+        utterance.lang = getSpeechLang(langCode);
+
+        console.info(
+          `[useSpeech] No voice for "${langCode}" (${freshVoices.length} voices available). ` +
+            `Using utterance.lang="${utterance.lang}" as fallback.`
+        );
+      }
+
+      utterance.rate = 0.85;
+      utterance.pitch = 1;
+      utterance.volume = 1;
+
+      return utterance;
+    },
+    []
+  );
+
   const speak = useCallback(
     (text: string, langCode: string = "en") => {
       if (typeof window === "undefined" || !window.speechSynthesis) return;
@@ -192,58 +258,25 @@ export function useSpeech() {
       window.speechSynthesis.cancel();
       clearTimers();
       startFiredRef.current = false;
+      retryCountRef.current = 0;
 
-      // Bump generation — any queued RAF callbacks from a previous
+      // Bump generation — any queued callbacks from a previous
       // speak() call will see a stale generation and bail out
       const generation = ++speakGenerationRef.current;
 
       // ─── Optimistic UI: show speaking state immediately ───
-      // This ensures the button animates even if onstart takes time
-      // or silently fails (Chrome bug after cancel/language change)
       setIsSpeaking(true);
 
-      // ─── Safety timeout: if onstart never fires, reset UI ───
-      // This prevents the button from being stuck in "speaking" forever
-      safetyTimerRef.current = setTimeout(() => {
-        if (!startFiredRef.current) {
-          // onstart never fired — silent failure
-          console.warn(
-            `[useSpeech] onstart didn't fire within ${SAFETY_TIMEOUT_MS}ms for lang="${langCode}" text="${text.slice(0, 30)}". ` +
-              `Voice found: ${findVoice(langCode) ? "yes" : "no"}. ` +
-              `Speech synthesis may not support this language.`
-          );
-          setIsSpeaking(false);
-        }
-      }, SAFETY_TIMEOUT_MS);
-
-      // ─── Build utterance ───
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = getSpeechLang(langCode);
-      utterance.rate = 0.85;
-      utterance.pitch = 1;
-      utterance.volume = 1;
-
-      // Set voice from provider cache
-      const voice = findVoice(langCode);
-      if (voice) {
-        utterance.voice = voice;
-      } else {
-        // No voice found — browser will try to use default voice for utterance.lang
-        // This may or may not work depending on the browser/OS
-        console.info(
-          `[useSpeech] No voice found for lang="${langCode}". ` +
-            `Relying on browser default for "${utterance.lang}". ` +
-            `Available voices: ${window.speechSynthesis.getVoices().length}`
-        );
-      }
+      // ─── Build utterance with fresh voice lookup ───
+      const utterance = createUtterance(text, langCode);
 
       // ─── onstart: confirm speech actually started ───
       utterance.onstart = () => {
         startFiredRef.current = true;
-        // isSpeaking already true from optimistic set, but re-affirm it
+        retryCountRef.current = 0;
         setIsSpeaking(true);
 
-        // Clear the safety timer — speech started successfully
+        // Clear safety timer — speech started successfully
         if (safetyTimerRef.current) {
           clearTimeout(safetyTimerRef.current);
           safetyTimerRef.current = null;
@@ -265,6 +298,7 @@ export function useSpeech() {
       // ─── onend: speech finished naturally ───
       utterance.onend = () => {
         startFiredRef.current = false;
+        retryCountRef.current = 0;
         setIsSpeaking(false);
         clearTimers();
       };
@@ -279,35 +313,87 @@ export function useSpeech() {
         clearTimers();
       };
 
+      // ─── Safety timeout: if onstart doesn't fire, retry or give up ───
+      safetyTimerRef.current = setTimeout(() => {
+        if (startFiredRef.current) return; // Already started, all good
+        if (speakGenerationRef.current !== generation) return; // Cancelled
+
+        if (retryCountRef.current < 1) {
+          // First attempt failed — retry with a longer delay
+          // This handles Chrome's case where the speech engine needs
+          // more time to reset after cancel(), especially for
+          // non-English languages that need network voices
+          console.info(`[useSpeech] Retrying speech for lang="${langCode}"...`);
+          retryCountRef.current++;
+
+          // Cancel and try again with setTimeout instead of RAF
+          window.speechSynthesis.cancel();
+
+          // Rebuild utterance with fresh voices (voices might have loaded since first attempt)
+          const retryUtterance = createUtterance(text, langCode);
+
+          retryUtterance.onstart = utterance.onstart;
+          retryUtterance.onend = utterance.onend;
+          retryUtterance.onerror = (e) => {
+            startFiredRef.current = false;
+            if (e.error !== "canceled") {
+              console.warn(`[useSpeech] retry error: ${e.error}`, { langCode });
+            }
+            setIsSpeaking(false);
+            clearTimers();
+          };
+
+          // Use setTimeout(100ms) for retry — longer than double-RAF
+          // to give Chrome's engine more time to fully reset
+          setTimeout(() => {
+            if (speakGenerationRef.current !== generation) return;
+            window.speechSynthesis.resume();
+            window.speechSynthesis.speak(retryUtterance);
+          }, 100);
+
+          // Set a longer timeout for the retry
+          safetyTimerRef.current = setTimeout(() => {
+            if (startFiredRef.current) return;
+            if (speakGenerationRef.current !== generation) return;
+
+            console.warn(
+              `[useSpeech] Speech failed for lang="${langCode}" after retry. ` +
+                `Voices available: ${getFreshVoices().length}. ` +
+                `This language may not be supported by your browser.`
+            );
+            setIsSpeaking(false);
+          }, RETRY_TIMEOUT_MS);
+        } else {
+          // Already retried — give up
+          console.warn(
+            `[useSpeech] Speech failed for lang="${langCode}" after retry. ` +
+              `Voices available: ${getFreshVoices().length}. ` +
+              `This language may not be supported by your browser.`
+          );
+          setIsSpeaking(false);
+        }
+      }, FIRST_ATTEMPT_TIMEOUT_MS);
+
       // ─── Chrome fix: double requestAnimationFrame with cancel guard ───
-      // After cancel(), Chrome's engine stays paused. A single RAF
-      // isn't always enough — the engine needs at least one full
-      // paint cycle to fully reset. Double-RAF ensures we yield
-      // past the current frame AND the next one, giving Chrome
-      // sufficient time to recover before we call speak().
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          // Guard: if stop() was called while the RAF was queued,
-          // generation will have changed — bail out
           if (speakGenerationRef.current !== generation) return;
           if (typeof window === "undefined" || !window.speechSynthesis) return;
 
-          // Resume the engine (in case it's paused from a previous cancel)
           window.speechSynthesis.resume();
-          // Now speak
           window.speechSynthesis.speak(utterance);
         });
       });
     },
-    [findVoice, clearTimers]
+    [createUtterance, clearTimers]
   );
 
   const stop = useCallback(() => {
     if (typeof window === "undefined" || !window.speechSynthesis) return;
-    // Bump generation so any queued RAF callbacks from speak() bail out
     speakGenerationRef.current++;
     window.speechSynthesis.cancel();
     startFiredRef.current = false;
+    retryCountRef.current = 0;
     setIsSpeaking(false);
     clearTimers();
   }, [clearTimers]);
