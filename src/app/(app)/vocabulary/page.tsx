@@ -179,18 +179,30 @@ function VocabularyCard({ item }: { item: VocabItem }) {
   // Extract target language from languagePair
   const targetLang = item.languagePair?.split("-")[1] || "en";
 
-  const handleListen = () => {
-    // ABSOLUTE TEST — alert cannot be missed on any device
-    alert(`CLICKED! word="${item.word}" lang="${targetLang}" pair="${item.languagePair}"`);
-    if (isSpeaking) {
-      stop();
-    } else {
-      speak(item.word, targetLang);
-    }
-  };
-
   return (
     <div className="group rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5 transition-all duration-200 hover:border-[var(--accent-primary)]/30 hover:shadow-[var(--shadow-md)]">
+      {/* ═══ DEBUG: Big red test button — bypasses everything ═══ */}
+      <button
+        onClick={() => {
+          alert(`TEST! word="${item.word}" lang="${targetLang}" pair="${item.languagePair}"`);
+        }}
+        style={{
+          width: "100%",
+          padding: "12px",
+          background: "#dc2626",
+          color: "white",
+          fontSize: "16px",
+          fontWeight: "bold",
+          borderRadius: "8px",
+          border: "none",
+          marginBottom: "8px",
+          cursor: "pointer",
+        }}
+      >
+        🔴 TEST — {item.word} ({targetLang})
+      </button>
+      {/* ═══ END DEBUG ═══ */}
+
       {/* Word + Part of Speech + Listen */}
       <div className="mb-3 flex items-start justify-between gap-2">
         <div className="flex items-center gap-2">
@@ -201,7 +213,14 @@ function VocabularyCard({ item }: { item: VocabItem }) {
             {item.word}
           </h3>
           <button
-            onClick={handleListen}
+            onClick={() => {
+              alert(`VOLUME CLICKED! word="${item.word}" lang="${targetLang}"`);
+              if (isSpeaking) {
+                stop();
+              } else {
+                speak(item.word, targetLang);
+              }
+            }}
             className={`rounded-lg p-1 transition-all duration-200 ${
               isSpeaking
                 ? "animate-pulse bg-[var(--accent-light)] text-[var(--accent-primary)]"
@@ -248,7 +267,19 @@ function VocabularyCard({ item }: { item: VocabItem }) {
             Review
           </Button>
         </Link>
-        <Button variant="ghost" size="sm" className="gap-1.5 text-xs" onClick={handleListen}>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="gap-1.5 text-xs"
+          onClick={() => {
+            alert(`LISTEN BTN CLICKED! word="${item.word}" lang="${targetLang}"`);
+            if (isSpeaking) {
+              stop();
+            } else {
+              speak(item.word, targetLang);
+            }
+          }}
+        >
           {isSpeaking ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
           {isSpeaking ? "Stop" : "Listen"}
         </Button>
