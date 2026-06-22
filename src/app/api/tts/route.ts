@@ -1,11 +1,16 @@
 /**
  * TTS API Route — Server-side Text-to-Speech
  *
- * Simple and robust: text + lang → WAV audio
- * Uses z-ai-web-dev-sdk with caching.
+ * Generates WAV via z-ai-web-dev-sdk, then converts to MP3 via ffmpeg.
+ * MP3 is universally supported on ALL mobile browsers.
+ * WAV is NOT supported on many mobile browsers (causes FORMAT_NOT_SUPPORTED error).
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { execFile } from "child_process";
+import { promisify } from "util";
+
+const execFileAsync = promisify(execFile);
 
 // Map language codes to best voice
 const LANG_VOICES: Record<string, string> = {
@@ -35,7 +40,55 @@ async function getZAI() {
   return zaiInstance;
 }
 
-// Simple LRU cache (max 300 entries)
+/**
+ * Convert WAV buffer to MP3 using ffmpeg.
+ * MP3 is universally supported on all mobile browsers.
+ * WAV causes "FORMAT_NOT_SUPPORTED" error on many mobile browsers.
+ */
+async function wavToMp3(wavBuffer: Buffer): Promise<Buffer> {
+  const { writeFile, readFile, unlink } = await import("fs/promises");
+  const { join } = await import("path");
+  const tmpDir = "/tmp";
+  const tmpId = `tts_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const wavPath = join(tmpDir, `${tmpId}.wav`);
+  const mp3Path = join(tmpDir, `${tmpId}.mp3`);
+
+  try {
+    await writeFile(wavPath, wavBuffer);
+
+    await execFileAsync(
+      "ffmpeg",
+      [
+        "-i",
+        wavPath,
+        "-vn",
+        "-ar",
+        "44100",
+        "-ac",
+        "2",
+        "-b:a",
+        "128k",
+        "-f",
+        "mp3",
+        "-y",
+        mp3Path,
+      ],
+      { timeout: 10000 }
+    );
+
+    const mp3Buffer = await readFile(mp3Path);
+    return mp3Buffer;
+  } finally {
+    try {
+      await unlink(wavPath);
+    } catch {}
+    try {
+      await unlink(mp3Path);
+    } catch {}
+  }
+}
+
+// Simple LRU cache
 const cache = new Map<string, Buffer>();
 const MAX_CACHE = 300;
 
@@ -57,7 +110,7 @@ export async function GET(req: NextRequest) {
   if (cached) {
     return new NextResponse(new Uint8Array(cached), {
       headers: {
-        "Content-Type": "audio/wav",
+        "Content-Type": "audio/mpeg",
         "Content-Length": String(cached.length),
         "Cache-Control": "public, max-age=604800",
       },
@@ -68,6 +121,7 @@ export async function GET(req: NextRequest) {
     const zai = await getZAI();
     const voice = LANG_VOICES[lang] || "kazi";
 
+    // Generate WAV audio
     const response = await zai.audio.tts.create({
       input: text.trim(),
       voice,
@@ -77,19 +131,22 @@ export async function GET(req: NextRequest) {
     });
 
     const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(new Uint8Array(arrayBuffer));
+    const wavBuffer = Buffer.from(new Uint8Array(arrayBuffer));
+
+    // Convert WAV → MP3 for universal mobile browser support
+    const mp3Buffer = await wavToMp3(wavBuffer);
 
     // Update cache
     if (cache.size >= MAX_CACHE) {
       const oldest = cache.keys().next().value;
       if (oldest) cache.delete(oldest);
     }
-    cache.set(key, buffer);
+    cache.set(key, mp3Buffer);
 
-    return new NextResponse(new Uint8Array(buffer), {
+    return new NextResponse(new Uint8Array(mp3Buffer), {
       headers: {
-        "Content-Type": "audio/wav",
-        "Content-Length": String(buffer.length),
+        "Content-Type": "audio/mpeg",
+        "Content-Length": String(mp3Buffer.length),
         "Cache-Control": "public, max-age=604800",
       },
     });
