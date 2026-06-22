@@ -28,6 +28,7 @@ import {
   VolumeX,
   Globe,
   ChevronRight,
+  Gauge,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,7 +36,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SUPPORTED_LANGUAGES } from "@/lib/constants";
 import { useTargetLanguage, useNativeLanguage, useProfileStore } from "@/stores/profile-store";
-import { useSpeech } from "@/hooks/use-speech";
+import { useSpeech, useSpeechSpeed, SPEED_OPTIONS } from "@/hooks/use-speech";
 
 // ═══════════════════════════════════════════
 // Types
@@ -55,6 +56,48 @@ interface LanguageGroup {
   nativeLang: string;
   targetLang: string;
   count: number;
+}
+
+// ═══════════════════════════════════════════
+// Speed Control Component
+// ═══════════════════════════════════════════
+
+function SpeedControl() {
+  const { speed, setSpeed } = useSpeechSpeed();
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border-default)] px-2.5 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:border-[var(--accent-primary)]/30 hover:text-[var(--accent-primary)]"
+      >
+        <Gauge className="h-3.5 w-3.5" />
+        {speed === 1.0 ? "1x" : `${speed}x`}
+      </button>
+      {open && (
+        <div className="absolute top-full right-0 z-50 mt-1 min-w-[140px] rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] p-1 shadow-lg">
+          {SPEED_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => {
+                setSpeed(opt.value);
+                setOpen(false);
+              }}
+              className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-xs transition-colors ${
+                speed === opt.value
+                  ? "bg-[var(--accent-light)] font-medium text-[var(--accent-primary)]"
+                  : "text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]"
+              }`}
+            >
+              <span className="font-mono">{opt.value}x</span>
+              <span>{opt.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ═══════════════════════════════════════════
@@ -404,21 +447,25 @@ export default function VocabularyPage() {
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
       {/* ═══ Header ═══ */}
       <div className="mb-6">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--accent-light)]">
-            <BookOpen className="h-5 w-5 text-[var(--accent-primary)]" />
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--accent-light)]">
+              <BookOpen className="h-5 w-5 text-[var(--accent-primary)]" />
+            </div>
+            <div>
+              <h1
+                className="text-2xl font-bold text-[var(--text-primary)] sm:text-3xl"
+                style={{ fontFamily: "var(--font-heading-cfg)" }}
+              >
+                Vocabulary Book
+              </h1>
+              <p className="text-sm text-[var(--text-secondary)]">
+                Words you encounter in conversations are automatically saved here
+              </p>
+            </div>
           </div>
-          <div>
-            <h1
-              className="text-2xl font-bold text-[var(--text-primary)] sm:text-3xl"
-              style={{ fontFamily: "var(--font-heading-cfg)" }}
-            >
-              Vocabulary Book
-            </h1>
-            <p className="text-sm text-[var(--text-secondary)]">
-              Words you encounter in conversations are automatically saved here
-            </p>
-          </div>
+          {/* Speed control */}
+          <SpeedControl />
         </div>
       </div>
 

@@ -30,7 +30,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Square, Clock, MessageSquare, AlertCircle } from "lucide-react";
+import { ArrowLeft, Square, Clock, MessageSquare, AlertCircle, Gauge } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useConversation } from "@/hooks/use-conversation";
@@ -44,6 +44,7 @@ import {
 import { ConversationSummary } from "@/components/conversation/conversation-summary";
 import type { EndConversationResponse } from "@/types/conversation";
 import { SUPPORTED_LANGUAGES, PROFICIENCY_LEVELS } from "@/lib/constants";
+import { useSpeechSpeed, SPEED_OPTIONS } from "@/hooks/use-speech";
 
 // ═══════════════════════════════════════════
 // Helper: get language display info
@@ -51,6 +52,48 @@ import { SUPPORTED_LANGUAGES, PROFICIENCY_LEVELS } from "@/lib/constants";
 
 function getLangInfo(code: string) {
   return SUPPORTED_LANGUAGES.find((l) => l.code === code) || { code, name: code, flagEmoji: "" };
+}
+
+// ═══════════════════════════════════════════
+// Speed Control Component
+// ═══════════════════════════════════════════
+
+function SpeedControl() {
+  const { speed, setSpeed } = useSpeechSpeed();
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border-default)] px-2 py-1 text-[11px] font-medium text-[var(--text-secondary)] transition-colors hover:border-[var(--accent-primary)]/30 hover:text-[var(--accent-primary)]"
+      >
+        <Gauge className="h-3.5 w-3.5" />
+        {speed === 1.0 ? "1x" : `${speed}x`}
+      </button>
+      {open && (
+        <div className="absolute top-full right-0 z-50 mt-1 min-w-[140px] rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] p-1 shadow-lg">
+          {SPEED_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => {
+                setSpeed(opt.value);
+                setOpen(false);
+              }}
+              className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-xs transition-colors ${
+                speed === opt.value
+                  ? "bg-[var(--accent-light)] font-medium text-[var(--accent-primary)]"
+                  : "text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]"
+              }`}
+            >
+              <span className="font-mono">{opt.value}x</span>
+              <span>{opt.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ═══════════════════════════════════════════
@@ -211,6 +254,9 @@ export default function ConversationPage() {
             <MessageSquare className="h-3 w-3" />
             {messages.length}
           </div>
+
+          {/* Speed control */}
+          <SpeedControl />
 
           {/* End conversation button */}
           {!isEnded && (
