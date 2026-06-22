@@ -1,34 +1,22 @@
 /**
  * TTS API Route — Server-side Text-to-Speech
  *
- * Uses z-ai-web-dev-sdk for reliable, multi-language TTS.
- * This is the same approach used by production language learning apps
- * (Duolingo, Babbel, etc.) — server-side TTS instead of Web Speech API.
- *
- * Why NOT Web Speech API:
- * - Only English local voices are reliably available across browsers
- * - Network voices (Google Français, etc.) fail silently in Chrome
- * - No control over voice quality, speed, or availability
- *
- * Why server-side TTS:
- * - Works for ALL languages (French, Arabic, Spanish, etc.)
- * - Consistent quality across browsers
- * - Cacheable (same word = same audio)
- * - Fast (~200ms for single words)
+ * Simple and robust: text + lang → WAV audio
+ * Uses z-ai-web-dev-sdk with caching.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 
-// Map language codes to appropriate voice for best pronunciation
+// Map language codes to best voice
 const LANG_VOICES: Record<string, string> = {
-  en: "jam", // British English — clear pronunciation
-  fr: "kazi", // Clear standard
+  en: "jam",
+  fr: "kazi",
   ar: "kazi",
   es: "kazi",
   de: "kazi",
   ja: "kazi",
   ko: "kazi",
-  zh: "tongtong", // Warm Chinese voice
+  zh: "tongtong",
   pt: "kazi",
   it: "kazi",
   ru: "kazi",
@@ -36,7 +24,7 @@ const LANG_VOICES: Record<string, string> = {
   tr: "kazi",
 };
 
-// SDK singleton — reuse across requests
+// SDK singleton
 let zaiInstance: any = null;
 
 async function getZAI() {
@@ -47,13 +35,9 @@ async function getZAI() {
   return zaiInstance;
 }
 
-// Simple in-memory cache for repeated words
-const audioCache = new Map<string, Buffer>();
-const MAX_CACHE_SIZE = 500;
-
-function getCacheKey(text: string, lang: string): string {
-  return `${lang}:${text}`;
-}
+// Simple LRU cache (max 300 entries)
+const cache = new Map<string, Buffer>();
+const MAX_CACHE = 300;
 
 export async function GET(req: NextRequest) {
   const text = req.nextUrl.searchParams.get("text");
@@ -64,20 +48,18 @@ export async function GET(req: NextRequest) {
   }
 
   if (text.length > 1024) {
-    return NextResponse.json({ error: "Text too long (max 1024 chars)" }, { status: 400 });
+    return NextResponse.json({ error: "Text too long" }, { status: 400 });
   }
 
-  // Check cache first
-  const cacheKey = getCacheKey(text, lang);
-  const cached = audioCache.get(cacheKey);
+  // Check cache
+  const key = `${lang}:${text}`;
+  const cached = cache.get(key);
   if (cached) {
     return new NextResponse(new Uint8Array(cached), {
-      status: 200,
       headers: {
         "Content-Type": "audio/wav",
-        "Content-Length": cached.length.toString(),
-        "Cache-Control": "public, max-age=604800", // 7 days
-        "X-Cache": "HIT",
+        "Content-Length": String(cached.length),
+        "Cache-Control": "public, max-age=604800",
       },
     });
   }
@@ -88,7 +70,7 @@ export async function GET(req: NextRequest) {
 
     const response = await zai.audio.tts.create({
       input: text.trim(),
-      voice: voice,
+      voice,
       speed: 0.85,
       response_format: "wav",
       stream: false,
@@ -97,24 +79,22 @@ export async function GET(req: NextRequest) {
     const arrayBuffer = await response.arrayBuffer();
     const buffer = Buffer.from(new Uint8Array(arrayBuffer));
 
-    // Cache the result (evict oldest if cache is full)
-    if (audioCache.size >= MAX_CACHE_SIZE) {
-      const firstKey = audioCache.keys().next().value;
-      if (firstKey) audioCache.delete(firstKey);
+    // Update cache
+    if (cache.size >= MAX_CACHE) {
+      const oldest = cache.keys().next().value;
+      if (oldest) cache.delete(oldest);
     }
-    audioCache.set(cacheKey, buffer);
+    cache.set(key, buffer);
 
     return new NextResponse(new Uint8Array(buffer), {
-      status: 200,
       headers: {
         "Content-Type": "audio/wav",
-        "Content-Length": buffer.length.toString(),
-        "Cache-Control": "public, max-age=604800", // 7 days
-        "X-Cache": "MISS",
+        "Content-Length": String(buffer.length),
+        "Cache-Control": "public, max-age=604800",
       },
     });
-  } catch (error) {
-    console.error("[TTS API] Error:", error);
-    return NextResponse.json({ error: "Failed to generate speech" }, { status: 500 });
+  } catch (error: any) {
+    console.error("[TTS API] Error:", error?.message || error);
+    return NextResponse.json({ error: "TTS failed" }, { status: 500 });
   }
 }

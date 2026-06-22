@@ -1,22 +1,10 @@
 /**
- * useSpeech — Production-grade TTS for React
+ * useSpeech — Dead simple TTS using server-side audio
  *
- * Architecture (simple & reliable):
- * ──────────────────────────────────
- * 1. PRIMARY: Server-side TTS via /api/tts (z-ai-web-dev-sdk)
- *    - Works for ALL languages (French, Arabic, Spanish, etc.)
- *    - Consistent quality across browsers
- *    - Server-side caching for repeated words
+ * No Web Speech API. No browser voice detection. No Chrome bugs.
+ * Just: click → fetch audio from server → play it.
  *
- * 2. FALLBACK: Web Speech API (browser built-in)
- *    - Used only if server TTS fails
- *    - Works reliably for English (local voices)
- *    - Unreliable for other languages (network voices fail silently)
- *
- * Why this approach:
- * - Duolingo, Babbel, and all production language apps use server-side TTS
- * - Web Speech API is only reliable for English local voices
- * - Server TTS adds ~200ms latency but guarantees all languages work
+ * Same approach as Duolingo, Babbel, Google Translate.
  */
 
 "use client";
@@ -25,170 +13,109 @@ import { useState, useCallback, useRef, useEffect, useContext, createContext } f
 import type { ReactNode } from "react";
 
 // ═══════════════════════════════════════════
-// Context — tracks if voices are loaded (for Web Speech fallback)
+// Context (minimal — kept for backwards compat)
 // ═══════════════════════════════════════════
 
-interface SpeechContextValue {
-  voicesReady: boolean;
-}
-
-const SpeechContext = createContext<SpeechContextValue>({ voicesReady: false });
+const SpeechContext = createContext({ voicesReady: true });
 
 export function SpeechProvider({ children }: { children: ReactNode }) {
-  const [voicesReady, setVoicesReady] = useState(false);
-
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.speechSynthesis) return;
-    const check = () => {
-      if (window.speechSynthesis.getVoices().length > 0) setVoicesReady(true);
-    };
-    check();
-    window.speechSynthesis.addEventListener("voiceschanged", check);
-    return () => window.speechSynthesis.removeEventListener("voiceschanged", check);
-  }, []);
-
-  return <SpeechContext.Provider value={{ voicesReady }}>{children}</SpeechContext.Provider>;
+  return <SpeechContext.Provider value={{ voicesReady: true }}>{children}</SpeechContext.Provider>;
 }
-
-// ═══════════════════════════════════════════
-// Language tag mapping (for Web Speech fallback)
-// ═══════════════════════════════════════════
-
-const LANG_TAGS: Record<string, string> = {
-  en: "en-US",
-  ar: "ar-SA",
-  es: "es-ES",
-  fr: "fr-FR",
-  de: "de-DE",
-  ja: "ja-JP",
-  ko: "ko-KR",
-  zh: "zh-CN",
-  pt: "pt-BR",
-  it: "it-IT",
-  ru: "ru-RU",
-  hi: "hi-IN",
-  tr: "tr-TR",
-};
 
 // ═══════════════════════════════════════════
 // Hook
 // ═══════════════════════════════════════════
 
+/** Max time to wait for audio before giving up */
+const LOAD_TIMEOUT_MS = 8000;
+
 export function useSpeech() {
-  const { voicesReady } = useContext(SpeechContext);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const isActiveRef = useRef(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Clean up on unmount
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.src = "";
-        audioRef.current = null;
-      }
-      if (typeof window !== "undefined" && window.speechSynthesis) {
-        window.speechSynthesis.cancel();
-      }
+      cleanup();
     };
   }, []);
 
-  const stopAll = useCallback(() => {
-    // Stop HTML5 Audio
+  const cleanup = useCallback(() => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
     if (audioRef.current) {
+      audioRef.current.onended = null;
+      audioRef.current.onerror = null;
       audioRef.current.pause();
-      audioRef.current.src = "";
+      audioRef.current.removeAttribute("src");
+      audioRef.current.load(); // release resource
       audioRef.current = null;
     }
-    // Stop Web Speech
-    if (typeof window !== "undefined" && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
-    }
-    isActiveRef.current = false;
-    setIsSpeaking(false);
-  }, []);
-
-  /**
-   * Web Speech API fallback — used only when server TTS fails.
-   * Only reliable for English (local voices).
-   */
-  const speakWithWebSpeech = useCallback((text: string, langCode: string) => {
-    if (typeof window === "undefined" || !window.speechSynthesis) {
-      setIsSpeaking(false);
-      return;
-    }
-
-    window.speechSynthesis.cancel();
-
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = LANG_TAGS[langCode] || `${langCode}-${langCode.toUpperCase()}`;
-    utterance.rate = 0.85;
-    utterance.volume = 1;
-
-    // Try to find a local voice
-    const voices = window.speechSynthesis.getVoices();
-    const localVoice = voices.find(
-      (v) => v.localService && (v.lang === utterance.lang || v.lang.startsWith(langCode + "-"))
-    );
-    if (localVoice) utterance.voice = localVoice;
-
-    utterance.onend = () => {
-      isActiveRef.current = false;
-      setIsSpeaking(false);
-    };
-    utterance.onerror = () => {
-      isActiveRef.current = false;
-      setIsSpeaking(false);
-    };
-
-    requestAnimationFrame(() => {
-      window.speechSynthesis.speak(utterance);
-    });
   }, []);
 
   const speak = useCallback(
     (text: string, langCode: string = "en") => {
-      // Stop any current playback
-      stopAll();
+      // Stop anything currently playing
+      cleanup();
 
       // Optimistic UI
       setIsSpeaking(true);
-      isActiveRef.current = true;
 
-      // ─── PRIMARY: Server-side TTS ───
+      // Safety timeout — if audio doesn't start within N seconds, reset
+      timeoutRef.current = setTimeout(() => {
+        console.warn("[useSpeech] Timeout — audio didn't load");
+        cleanup();
+        setIsSpeaking(false);
+      }, LOAD_TIMEOUT_MS);
+
+      // Create fresh audio element
       const audio = new Audio();
       audioRef.current = audio;
 
       const url = `/api/tts?text=${encodeURIComponent(text)}&lang=${encodeURIComponent(langCode)}`;
 
       audio.onended = () => {
-        isActiveRef.current = false;
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+          timeoutRef.current = null;
+        }
         setIsSpeaking(false);
       };
 
       audio.onerror = () => {
-        // Server TTS failed — fall back to Web Speech API
-        console.warn("[useSpeech] Server TTS failed, falling back to Web Speech API");
-        if (audioRef.current === audio) audioRef.current = null;
-        speakWithWebSpeech(text, langCode);
+        console.warn("[useSpeech] Audio error");
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+          timeoutRef.current = null;
+        }
+        setIsSpeaking(false);
+      };
+
+      // When audio starts playing, clear the safety timeout
+      audio.oncanplay = () => {
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+          timeoutRef.current = null;
+        }
       };
 
       audio.src = url;
-
-      audio.play().catch(() => {
-        // play() failed — fall back to Web Speech API
-        console.warn("[useSpeech] Audio play() failed, falling back to Web Speech API");
-        if (audioRef.current === audio) audioRef.current = null;
-        speakWithWebSpeech(text, langCode);
+      audio.play().catch((err) => {
+        console.warn("[useSpeech] play() failed:", err?.message || err);
+        cleanup();
+        setIsSpeaking(false);
       });
     },
-    [stopAll, speakWithWebSpeech]
+    [cleanup]
   );
 
   const stop = useCallback(() => {
-    stopAll();
-  }, [stopAll]);
+    cleanup();
+    setIsSpeaking(false);
+  }, [cleanup]);
 
-  return { speak, stop, isSpeaking, voicesReady };
+  return { speak, stop, isSpeaking, voicesReady: true };
 }
