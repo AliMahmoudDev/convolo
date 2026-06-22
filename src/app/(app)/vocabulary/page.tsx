@@ -35,7 +35,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SUPPORTED_LANGUAGES } from "@/lib/constants";
 import { useTargetLanguage, useNativeLanguage, useProfileStore } from "@/stores/profile-store";
-import { useSpeech } from "@/hooks/use-speech";
+import { useSpeech, TTSDebugOverlay } from "@/hooks/use-speech";
 
 // ═══════════════════════════════════════════
 // Types
@@ -625,6 +625,9 @@ export default function VocabularyPage() {
           )}
         </>
       )}
+
+      {/* TTS Debug Overlay — shows on screen what's happening */}
+      <TTSDebugOverlay />
     </div>
   );
 }

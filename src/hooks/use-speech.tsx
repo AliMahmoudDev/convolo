@@ -1,8 +1,8 @@
 /**
  * useSpeech — TTS using server-side audio
  *
- * DEBUG MODE: On — logs every step to help trace issues.
- * Remove the console.log lines after debugging is complete.
+ * ON-SCREEN DEBUG: Shows debug info as toast messages on screen
+ * so you can see what's happening on a phone (no console needed).
  */
 
 "use client";
@@ -11,27 +11,87 @@ import { useState, useCallback, useRef, useEffect, useContext, createContext } f
 import type { ReactNode } from "react";
 
 // ═══════════════════════════════════════════
-// Context (minimal — kept for backwards compat)
+// On-screen Debug Toast System
+// ═══════════════════════════════════════════
+
+interface DebugMsg {
+  id: number;
+  text: string;
+  type: "info" | "ok" | "error";
+  time: number;
+}
+
+let debugListeners: Array<(msgs: DebugMsg[]) => void> = [];
+let debugMsgs: DebugMsg[] = [];
+let debugId = 0;
+
+function addDebug(text: string, type: "info" | "ok" | "error" = "info") {
+  const msg: DebugMsg = { id: ++debugId, text, type, time: Date.now() };
+  debugMsgs = [...debugMsgs.slice(-6), msg]; // Keep last 7 messages
+  debugListeners.forEach((fn) => fn([...debugMsgs]));
+  // Also log to console for desktop users
+  if (type === "error") console.error("[TTS]", text);
+  else console.log("[TTS]", text);
+}
+
+/** Component to show on screen — import and render once in your page */
+export function TTSDebugOverlay() {
+  const [msgs, setMsgs] = useState<DebugMsg[]>([]);
+
+  useEffect(() => {
+    debugListeners.push(setMsgs);
+    return () => {
+      debugListeners = debugListeners.filter((fn) => fn !== setMsgs);
+    };
+  }, []);
+
+  if (msgs.length === 0) return null;
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        bottom: 80,
+        left: 8,
+        right: 8,
+        zIndex: 9999,
+        display: "flex",
+        flexDirection: "column",
+        gap: 4,
+        pointerEvents: "none",
+      }}
+    >
+      {msgs.map((m) => (
+        <div
+          key={m.id}
+          style={{
+            padding: "6px 10px",
+            borderRadius: 8,
+            fontSize: 11,
+            fontFamily: "monospace",
+            lineHeight: 1.4,
+            color: "#fff",
+            backgroundColor:
+              m.type === "error" ? "#dc2626" : m.type === "ok" ? "#16a34a" : "#4f46e5",
+            opacity: 0.92,
+            wordBreak: "break-all",
+          }}
+        >
+          {m.type === "ok" ? "✅" : m.type === "error" ? "❌" : "🔍"} {m.text}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════
+// Context
 // ═══════════════════════════════════════════
 
 const SpeechContext = createContext({ voicesReady: true });
 
 export function SpeechProvider({ children }: { children: ReactNode }) {
   return <SpeechContext.Provider value={{ voicesReady: true }}>{children}</SpeechContext.Provider>;
-}
-
-// ═══════════════════════════════════════════
-// Debug logger — easy to find in console
-// ═══════════════════════════════════════════
-
-const DEBUG = true;
-
-function log(...args: any[]) {
-  if (DEBUG) console.log("%c[🔊 TTS]", "color: #6366f1; font-weight: bold", ...args);
-}
-
-function logError(...args: any[]) {
-  if (DEBUG) console.error("%c[🔊 TTS ERROR]", "color: #ef4444; font-weight: bold", ...args);
 }
 
 // ═══════════════════════════════════════════
@@ -70,39 +130,27 @@ export function useSpeech() {
 
   const speak = useCallback(
     (text: string, langCode: string = "en") => {
-      log("━━━ speak() called ━━━");
-      log("  text:", text);
-      log("  langCode:", langCode);
-
-      // ─── STEP 1: Stop anything currently playing ───
+      addDebug(`speak("${text}", "${langCode}")`, "info");
       cleanup();
-      log("  ✓ Step 1: Cleaned up previous audio");
 
-      // ─── STEP 2: Set speaking state ───
       setIsSpeaking(true);
-      log("  ✓ Step 2: isSpeaking → true");
+      addDebug("isSpeaking → true", "info");
 
-      // ─── STEP 3: Build URL ───
       const url = `/api/tts?text=${encodeURIComponent(text)}&lang=${encodeURIComponent(langCode)}`;
-      log("  ✓ Step 3: URL =", url);
+      addDebug(`URL: /api/tts?text=...&lang=${langCode}`, "info");
 
-      // ─── STEP 4: Safety timeout ───
+      // Safety timeout
       timeoutRef.current = setTimeout(() => {
-        logError("  ⏰ TIMEOUT — audio didn't load within", LOAD_TIMEOUT_MS, "ms");
-        logError("  → This means /api/tts is not responding or audio can't play");
+        addDebug("⏰ TIMEOUT! API didn't respond in 8s", "error");
         cleanup();
         setIsSpeaking(false);
       }, LOAD_TIMEOUT_MS);
-      log("  ✓ Step 4: Safety timeout set");
 
-      // ─── STEP 5: Create Audio element ───
       const audio = new Audio();
       audioRef.current = audio;
-      log("  ✓ Step 5: Audio element created");
 
-      // ─── STEP 6: Wire up event listeners ───
       audio.onplay = () => {
-        log("  🎵 Step 6: onplay fired — AUDIO IS PLAYING!");
+        addDebug("🎵 PLAYING! Audio started!", "ok");
         if (timeoutRef.current) {
           clearTimeout(timeoutRef.current);
           timeoutRef.current = null;
@@ -110,7 +158,7 @@ export function useSpeech() {
       };
 
       audio.oncanplay = () => {
-        log("  ✓ Step 6: oncanplay fired — audio is ready to play");
+        addDebug("Audio loaded, ready to play", "ok");
         if (timeoutRef.current) {
           clearTimeout(timeoutRef.current);
           timeoutRef.current = null;
@@ -118,66 +166,42 @@ export function useSpeech() {
       };
 
       audio.onended = () => {
-        log("  ✓ onended — playback finished");
+        addDebug("Playback finished", "ok");
         setIsSpeaking(false);
       };
 
-      audio.onerror = (e) => {
-        logError("  ❌ onerror — audio element error!");
-        logError("  → Error event:", e);
-        logError("  → audio.src:", audio.src);
-        logError("  → audio.error:", audio.error);
-        if (audio.error) {
-          logError("  → Error code:", audio.error.code, "Message:", audio.error.message);
-          // Error codes: 1=MEDIA_ERR_ABORTED, 2=MEDIA_ERR_NETWORK, 3=MEDIA_ERR_DECODE, 4=MEDIA_ERR_SRC_NOT_SUPPORTED
-          const codes: Record<number, string> = {
-            1: "ABORTED — playback was aborted",
-            2: "NETWORK — network error while downloading",
-            3: "DECODE — audio format decode error",
-            4: "SRC_NOT_SUPPORTED — audio format not supported",
-          };
-          logError("  → Meaning:", codes[audio.error.code] || "Unknown");
-        }
+      audio.onerror = () => {
+        const errCode = audio.error?.code;
+        const codes: Record<number, string> = {
+          1: "ABORTED",
+          2: "NETWORK_ERROR",
+          3: "DECODE_ERROR",
+          4: "FORMAT_NOT_SUPPORTED",
+        };
+        addDebug(`❌ Audio error: ${codes[errCode || 0] || "unknown"} (code ${errCode})`, "error");
         cleanup();
         setIsSpeaking(false);
       };
 
-      log("  ✓ Step 6: Event listeners attached (onplay, oncanplay, onended, onerror)");
-
-      // ─── STEP 7: Set source and play ───
       audio.src = url;
-      log("  ✓ Step 7a: audio.src set");
+      addDebug("Calling audio.play()...", "info");
 
-      log("  ⏳ Step 7b: Calling audio.play()...");
       audio
         .play()
         .then(() => {
-          log("  ✓ Step 7b: play() promise resolved — playback started!");
+          addDebug("play() succeeded!", "ok");
         })
         .catch((err) => {
-          logError("  ❌ Step 7b: play() promise REJECTED!");
-          logError("  → Error name:", err?.name);
-          logError("  → Error message:", err?.message);
-          // Common errors:
-          // NotAllowedError → browser blocked autoplay (user must interact first)
-          // NotSupportedError → audio format not supported
-          // AbortError → play() was interrupted by stop()
-          if (err?.name === "NotAllowedError") {
-            logError("  → CAUSE: Browser blocked audio. User needs to interact with page first.");
-          } else if (err?.name === "NotSupportedError") {
-            logError("  → CAUSE: Audio format not supported by this browser.");
-          }
+          addDebug(`❌ play() failed: ${err?.name} — ${err?.message}`, "error");
           cleanup();
           setIsSpeaking(false);
         });
-
-      log("━━━ speak() finished setting up ━━━");
     },
     [cleanup]
   );
 
   const stop = useCallback(() => {
-    log("stop() called — stopping playback");
+    addDebug("stop() called", "info");
     cleanup();
     setIsSpeaking(false);
   }, [cleanup]);
