@@ -348,6 +348,16 @@ export default function VocabularyPage() {
         if (data.data.languageGroups) {
           setLanguageGroups(data.data.languageGroups);
         }
+
+        // ═══ DEBUG: Show what API returned ═══
+        console.log("[🔍 VOCAB DEBUG] API response:", {
+          langPair,
+          totalItems: data.data.total,
+          returnedItems: (data.data.items || []).length,
+          languageGroups: data.data.languageGroups,
+          firstItem: data.data.items?.[0] || "NONE",
+        });
+        // ═══ END DEBUG ═══
       } catch {
         setError("Something went wrong. Please try again.");
       } finally {
@@ -426,6 +436,24 @@ export default function VocabularyPage() {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+      {/* ═══ VERSION INDICATOR — if you see this, you have the NEW code ═══ */}
+      <div
+        style={{
+          position: "sticky",
+          top: 0,
+          zIndex: 9999,
+          background: "#7c3aed",
+          color: "white",
+          textAlign: "center",
+          padding: "8px",
+          fontSize: "14px",
+          fontWeight: "bold",
+          fontFamily: "sans-serif",
+        }}
+      >
+        🔥 CODE v3 — لو شايف ده يبقى الكود الجديد شغال
+      </div>
+
       {/* ═══ Header ═══ */}
       <div className="mb-6">
         <div className="flex items-center gap-3">
@@ -572,6 +600,48 @@ export default function VocabularyPage() {
           {error}
         </div>
       )}
+
+      {/* ═══ DEBUG: Show current state on screen ═══ */}
+      <div
+        style={{
+          padding: "12px",
+          background: "#1e1b4b",
+          color: "#e0e7ff",
+          borderRadius: "8px",
+          fontSize: "12px",
+          fontFamily: "monospace",
+          marginBottom: "16px",
+          lineHeight: 1.6,
+          wordBreak: "break-all",
+        }}
+      >
+        <div style={{ fontWeight: "bold", fontSize: "14px", marginBottom: "4px" }}>
+          🔍 DEBUG INFO
+        </div>
+        <div>
+          currentPair: <b>{currentPair}</b>
+        </div>
+        <div>
+          total items: <b>{total}</b>
+        </div>
+        <div>
+          items.length: <b>{items.length}</b>
+        </div>
+        <div>
+          isLoading: <b>{String(isLoading)}</b>
+        </div>
+        <div>
+          languageGroups:{" "}
+          <b>{languageGroups.map((g) => `${g.languagePair}(${g.count})`).join(", ") || "NONE"}</b>
+        </div>
+        <div>
+          first item word: <b>{items[0]?.word || "NONE"}</b>
+        </div>
+        <div>
+          first item pair: <b>{items[0]?.languagePair || "NONE"}</b>
+        </div>
+      </div>
+      {/* ═══ END DEBUG ═══ */}
 
       {/* ═══ Content ═══ */}
       {isLoading ? (
