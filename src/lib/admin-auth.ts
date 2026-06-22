@@ -15,7 +15,9 @@ export async function requireAdmin(): Promise<AppUser | null> {
   const dbUser = await getOrCreateUser(user);
 
   // For MVP: check if user email is in ADMIN_EMAILS env var
-  const adminEmails = (process.env.ADMIN_EMAILS || "").split(",").map((e) => e.trim().toLowerCase());
+  const adminEmails = (process.env.ADMIN_EMAILS || "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase());
   if (!adminEmails.includes(dbUser.email.toLowerCase())) return null;
 
   return dbUser;

@@ -1,0 +1,741 @@
+     1→/**
+     2→ * Progress Page — Detailed learning analytics dashboard.
+     3→ *
+     4→ * Features:
+     5→ * - Overview cards (conversations, messages, minutes, XP)
+     6→ * - Streak display with flame icon
+     7→ * - Weekly activity chart (CSS bars)
+     8→ * - Language progress cards
+     9→ * - Average score display
+    10→ * - Loading skeleton & empty state
+    11→ */
+    12→
+    13→"use client";
+    14→
+    15→import { useState, useEffect } from "react";
+    16→import {
+    17→  MessageSquare,
+    18→  Clock,
+    19→  Zap,
+    20→  Flame,
+    21→  Trophy,
+    22→  TrendingUp,
+    23→  BookOpen,
+    24→  AlertCircle,
+    25→  Loader2,
+    26→  BarChart3,
+    27→  Target,
+    28→} from "lucide-react";
+    29→import { Button } from "@/components/ui/button";
+    30→import { Skeleton } from "@/components/ui/skeleton";
+    31→import Link from "next/link";
+    32→
+    33→// ═══════════════════════════════════════════
+    34→// Types
+    35→// ═══════════════════════════════════════════
+    36→
+    37→interface WeeklyActivityItem {
+    38→  date: string;
+    39→  conversations: number;
+    40→  messages: number;
+    41→  minutes: number;
+    42→}
+    43→
+    44→interface LanguageProgressItem {
+    45→  languagePair: string;
+    46→  totalConversations: number;
+    47→  avgScore: number;
+    48→  wordsLearned: number;
+    49→}
+    50→
+    51→interface ProgressData {
+    52→  totalConversations: number;
+    53→  totalMessages: number;
+    54→  totalMinutes: number;
+    55→  totalWordsLearned: number;
+    56→  totalCorrections: number;
+    57→  currentStreak: number;
+    58→  longestStreak: number;
+    59→  xpPoints: number;
+    60→  avgScore: number;
+    61→  levelProgress: number;
+    62→  lastPracticeAt: string | null;
+    63→  weeklyActivity: WeeklyActivityItem[];
+    64→  languageProgress: LanguageProgressItem[];
+    65→}
+    66→
+    67→// ═══════════════════════════════════════════
+    68→// Helpers
+    69→// ═══════════════════════════════════════════
+    70→
+    71→function getDayLabel(dateStr: string): string {
+    72→  const date = new Date(dateStr + "T00:00:00");
+    73→  const today = new Date();
+    74→  const yesterday = new Date(today);
+    75→  yesterday.setDate(yesterday.getDate() - 1);
+    76→
+    77→  if (dateStr === today.toISOString().split("T")[0]) return "Today";
+    78→  if (dateStr === yesterday.toISOString().split("T")[0]) return "Yesterday";
+    79→
+    80→  return date.toLocaleDateString("en-US", { weekday: "short" });
+    81→}
+    82→
+    83→function formatMinutes(minutes: number): string {
+    84→  if (minutes < 60) return `${minutes}m`;
+    85→  const h = Math.floor(minutes / 60);
+    86→  const m = minutes % 60;
+    87→  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+    88→}
+    89→
+    90→function getScoreColor(score: number): string {
+    91→  if (score >= 90) return "text-[var(--state-success)]";
+    92→  if (score >= 70) return "text-[var(--accent-primary)]";
+    93→  if (score >= 50) return "text-[var(--color-gold)]";
+    94→  return "text-[var(--state-error)]";
+    95→}
+    96→
+    97→function getScoreLabel(score: number): string {
+    98→  if (score >= 90) return "Excellent";
+    99→  if (score >= 70) return "Good";
+   100→  if (score >= 50) return "Improving";
+   101→  return "Beginner";
+   102→}
+   103→
+   104→function parseLanguagePair(pair: string): { source: string; target: string } {
+   105→  const parts = pair.split("-");
+   106→  return { source: parts[0] || "?", target: parts[1] || "?" };
+   107→}
+   108→
+   109→// ═══════════════════════════════════════════
+   110→// Sub-components
+   111→// ═══════════════════════════════════════════
+   112→
+   113→function StatCard({
+   114→  icon: Icon,
+   115→  label,
+   116→  value,
+   117→  iconColor,
+   118→  iconBg,
+   119→}: {
+   120→  icon: React.ElementType;
+   121→  label: string;
+   122→  value: string;
+   123→  iconColor: string;
+   124→  iconBg: string;
+   125→}) {
+   126→  return (
+   127→    <div className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-4 sm:p-5">
+   128→      <div className="mb-3 flex items-center gap-3">
+   129→        <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${iconBg}`}>
+   130→          <Icon className={`h-4.5 w-4.5 ${iconColor}`} />
+   131→        </div>
+   132→      </div>
+   133→      <p
+   134→        className="mb-0.5 text-2xl font-bold text-[var(--text-primary)] sm:text-3xl"
+   135→        style={{ fontFamily: "var(--font-heading-cfg)" }}
+   136→      >
+   137→        {value}
+   138→      </p>
+   139→      <p className="text-xs text-[var(--text-muted)] sm:text-sm">{label}</p>
+   140→    </div>
+   141→  );
+   142→}
+   143→
+   144→function CircularProgress({ value, size = 120, strokeWidth = 8 }: { value: number; size?: number; strokeWidth?: number }) {
+   145→  const radius = (size - strokeWidth) / 2;
+   146→  const circumference = 2 * Math.PI * radius;
+   147→  const offset = circumference - (value / 100) * circumference;
+   148→
+   149→  return (
+   150→    <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
+   151→      <svg width={size} height={size} className="-rotate-90">
+   152→        <circle
+   153→          cx={size / 2}
+   154→          cy={size / 2}
+   155→          r={radius}
+   156→          fill="none"
+   157→          stroke="var(--bg-elevated)"
+   158→          strokeWidth={strokeWidth}
+   159→        />
+   160→        <circle
+   161→          cx={size / 2}
+   162→          cy={size / 2}
+   163→          r={radius}
+   164→          fill="none"
+   165→          stroke="var(--accent-primary)"
+   166→          strokeWidth={strokeWidth}
+   167→          strokeDasharray={circumference}
+   168→          strokeDashoffset={offset}
+   169→          strokeLinecap="round"
+   170→          className="transition-all duration-700 ease-out"
+   171→        />
+   172→      </svg>
+   173→      <div className="absolute inset-0 flex flex-col items-center justify-center">
+   174→        <span
+   175→          className={`text-2xl font-bold ${getScoreColor(value)}`}
+   176→          style={{ fontFamily: "var(--font-heading-cfg)" }}
+   177→        >
+   178→          {value}
+   179→        </span>
+   180→        <span className="text-[10px] font-medium text-[var(--text-muted)] uppercase">
+   181→          Score
+   182→        </span>
+   183→      </div>
+   184→    </div>
+   185→  );
+   186→}
+   187→
+   188→function WeeklyChart({ data }: { data: WeeklyActivityItem[] }) {
+   189→  const maxConversations = Math.max(...data.map((d) => d.conversations), 1);
+   190→
+   191→  return (
+   192→    <div className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-4 sm:p-6">
+   193→      <div className="mb-4 flex items-center justify-between">
+   194→        <h3
+   195→          className="text-base font-semibold text-[var(--text-primary)]"
+   196→          style={{ fontFamily: "var(--font-heading-cfg)" }}
+   197→        >
+   198→          Weekly Activity
+   199→        </h3>
+   200→        <span className="text-xs text-[var(--text-muted)]">Last 7 days</span>
+   201→      </div>
+   202→
+   203→      <div className="flex items-end justify-between gap-2 sm:gap-3" style={{ height: 160 }}>
+   204→        {data.map((day) => {
+   205→          const heightPercent = day.conversations > 0
+   206→            ? Math.max(12, (day.conversations / maxConversations) * 100)
+   207→            : 4;
+   208→          const isToday = day.date === new Date().toISOString().split("T")[0];
+   209→
+   210→          return (
+   211→            <div key={day.date} className="flex flex-1 flex-col items-center gap-2">
+   212→              {/* Bar */}
+   213→              <div className="relative w-full flex justify-center" style={{ height: 120 }}>
+   214→                <div
+   215→                  className={`w-full max-w-[40px] rounded-t-lg transition-all duration-500 ease-out ${
+   216→                    day.conversations > 0
+   217→                      ? isToday
+   218→                        ? "bg-[var(--accent-primary)]"
+   219→                        : "bg-[var(--accent-primary)]/60"
+   220→                      : "bg-[var(--bg-elevated)]"
+   221→                  }`}
+   222→                  style={{ height: `${heightPercent}%`, marginTop: "auto" }}
+   223→                />
+   224→              </div>
+   225→
+   226→              {/* Day label */}
+   227→              <span className={`text-[10px] font-medium sm:text-xs ${
+   228→                isToday ? "text-[var(--accent-primary)]" : "text-[var(--text-muted)]"
+   229→              }`}>
+   230→                {getDayLabel(day.date)}
+   231→              </span>
+   232→
+   233→              {/* Count */}
+   234→              <span className={`text-[10px] font-bold ${
+   235→                day.conversations > 0 ? "text-[var(--text-primary)]" : "text-[var(--text-muted)]"
+   236→              }`}>
+   237→                {day.conversations}
+   238→              </span>
+   239→            </div>
+   240→          );
+   241→        })}
+   242→      </div>
+   243→    </div>
+   244→  );
+   245→}
+   246→
+   247→function LanguageCard({ lang }: { lang: LanguageProgressItem }) {
+   248→  const { source, target } = parseLanguagePair(lang.languagePair);
+   249→
+   250→  return (
+   251→    <div className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-4 sm:p-5 transition-colors hover:border-[var(--accent-primary)]/30">
+   252→      <div className="mb-3 flex items-center gap-2">
+   253→        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--accent-light)]">
+   254→          <span className="text-sm font-bold text-[var(--accent-primary)] uppercase">{target}</span>
+   255→        </div>
+   256→        <div>
+   257→          <p className="text-sm font-semibold text-[var(--text-primary)]">
+   258→            {source.toUpperCase()} → {target.toUpperCase()}
+   259→          </p>
+   260→          <p className="text-[10px] text-[var(--text-muted)]">{lang.totalConversations} conversations</p>
+   261→        </div>
+   262→      </div>
+   263→
+   264→      <div className="grid grid-cols-3 gap-3">
+   265→        <div>
+   266→          <p className="text-lg font-bold text-[var(--text-primary)]" style={{ fontFamily: "var(--font-heading-cfg)" }}>
+   267→            {lang.totalConversations}
+   268→          </p>
+   269→          <p className="text-[10px] text-[var(--text-muted)]">Sessions</p>
+   270→        </div>
+   271→        <div>
+   272→          <p className={`text-lg font-bold ${getScoreColor(lang.avgScore)}`} style={{ fontFamily: "var(--font-heading-cfg)" }}>
+   273→            {lang.avgScore}
+   274→          </p>
+   275→          <p className="text-[10px] text-[var(--text-muted)]">Avg Score</p>
+   276→        </div>
+   277→        <div>
+   278→          <p className="text-lg font-bold text-[var(--state-success)]" style={{ fontFamily: "var(--font-heading-cfg)" }}>
+   279→            {lang.wordsLearned}
+   280→          </p>
+   281→          <p className="text-[10px] text-[var(--text-muted)]">Words</p>
+   282→        </div>
+   283→      </div>
+   284→
+   285→      {/* Score bar */}
+   286→      <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-[var(--bg-elevated)]">
+   287→        <div
+   288→          className="h-full rounded-full bg-[var(--accent-primary)] transition-all duration-700 ease-out"
+   289→          style={{ width: `${lang.avgScore}%` }}
+   290→        />
+   291→      </div>
+   292→    </div>
+   293→  );
+   294→}
+   295→
+   296→// ═══════════════════════════════════════════
+   297→// Loading Skeleton
+   298→// ═══════════════════════════════════════════
+   299→
+   300→function LoadingSkeleton() {
+   301→  return (
+   302→    <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+   303→      {/* Header */}
+   304→      <div className="mb-8">
+   305→        <Skeleton className="mb-2 h-8 w-48" />
+   306→        <Skeleton className="h-4 w-72" />
+   307→      </div>
+   308→
+   309→      {/* Stats grid */}
+   310→      <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
+   311→        {Array.from({ length: 4 }).map((_, i) => (
+   312→          <div key={i} className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-4 sm:p-5">
+   313→            <Skeleton className="mb-3 h-9 w-9 rounded-lg" />
+   314→            <Skeleton className="mb-1 h-8 w-16" />
+   315→            <Skeleton className="h-3 w-24" />
+   316→          </div>
+   317→        ))}
+   318→      </div>
+   319→
+   320→      {/* Streak + Score row */}
+   321→      <div className="mb-8 grid grid-cols-1 gap-4 md:grid-cols-2">
+   322→        <div className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-6">
+   323→          <Skeleton className="mb-4 h-5 w-32" />
+   324→          <div className="flex items-center gap-6">
+   325→            <Skeleton className="h-16 w-16 rounded-2xl" />
+   326→            <div>
+   327→              <Skeleton className="mb-2 h-8 w-20" />
+   328→              <Skeleton className="h-3 w-32" />
+   329→            </div>
+   330→          </div>
+   331→        </div>
+   332→        <div className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-6">
+   333→          <Skeleton className="mb-4 h-5 w-28" />
+   334→          <div className="flex items-center justify-center">
+   335→            <Skeleton className="h-[120px] w-[120px] rounded-full" />
+   336→          </div>
+   337→        </div>
+   338→      </div>
+   339→
+   340→      {/* Weekly chart */}
+   341→      <div className="mb-8 rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-6">
+   342→        <Skeleton className="mb-6 h-5 w-36" />
+   343→        <div className="flex items-end justify-between gap-3" style={{ height: 160 }}>
+   344→          {Array.from({ length: 7 }).map((_, i) => (
+   345→            <div key={i} className="flex flex-1 flex-col items-center gap-2">
+   346→              <Skeleton className="w-full max-w-[40px] rounded-t-lg" style={{ height: `${30 + Math.random() * 70}%` }} />
+   347→              <Skeleton className="h-3 w-8" />
+   348→            </div>
+   349→          ))}
+   350→        </div>
+   351→      </div>
+   352→
+   353→      {/* Language progress */}
+   354→      <div className="mb-8">
+   355→        <Skeleton className="mb-4 h-5 w-36" />
+   356→        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+   357→          {Array.from({ length: 3 }).map((_, i) => (
+   358→            <div key={i} className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5">
+   359→              <Skeleton className="mb-3 h-8 w-8 rounded-lg" />
+   360→              <Skeleton className="mb-2 h-4 w-32" />
+   361→              <Skeleton className="h-3 w-24" />
+   362→            </div>
+   363→          ))}
+   364→        </div>
+   365→      </div>
+   366→    </div>
+   367→  );
+   368→}
+   369→
+   370→// ═══════════════════════════════════════════
+   371→// Empty State
+   372→// ═══════════════════════════════════════════
+   373→
+   374→function EmptyState() {
+   375→  return (
+   376→    <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+   377→      <div className="mb-8">
+   378→        <h1
+   379→          className="mb-2 text-2xl font-bold text-[var(--text-primary)] sm:text-3xl"
+   380→          style={{ fontFamily: "var(--font-heading-cfg)" }}
+   381→        >
+   382→          Your Progress
+   383→        </h1>
+   384→        <p className="text-[var(--text-secondary)]">
+   385→          Track your fluency journey with detailed analytics and achievements
+   386→        </p>
+   387→      </div>
+   388→
+   389→      <div className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-8 text-center sm:p-12">
+   390→        <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--accent-light)]">
+   391→          <BarChart3 className="h-8 w-8 text-[var(--accent-primary)]" />
+   392→        </div>
+   393→        <h3
+   394→          className="mb-2 text-lg font-semibold text-[var(--text-primary)]"
+   395→          style={{ fontFamily: "var(--font-heading-cfg)" }}
+   396→        >
+   397→          No progress data yet
+   398→        </h3>
+   399→        <p className="mx-auto mb-6 max-w-md text-sm text-[var(--text-secondary)]">
+   400→          Complete your first conversation to start tracking your learning progress. You will see
+   401→          detailed analytics including fluency score, streaks, and vocabulary growth over time.
+   402→        </p>
+   403→        <Link href="/learn">
+   404→          <Button className="gap-2">
+   405→            <MessageSquare className="h-4 w-4" />
+   406→            Start Your First Conversation
+   407→          </Button>
+   408→        </Link>
+   409→      </div>
+   410→    </div>
+   411→  );
+   412→}
+   413→
+   414→// ═══════════════════════════════════════════
+   415→// Main Component
+   416→// ═══════════════════════════════════════════
+   417→
+   418→export default function ProgressPage() {
+   419→  const [data, setData] = useState<ProgressData | null>(null);
+   420→  const [isLoading, setIsLoading] = useState(true);
+   421→  const [error, setError] = useState<string | null>(null);
+   422→
+   423→  useEffect(() => {
+   424→    async function fetchProgress() {
+   425→      try {
+   426→        const res = await fetch("/api/user/progress");
+   427→        const json = await res.json();
+   428→
+   429→        if (json.success && json.data) {
+   430→          setData(json.data);
+   431→        } else {
+   432→          setError(json.error?.message || "Failed to load progress");
+   433→        }
+   434→      } catch {
+   435→        setError("Something went wrong. Please try again.");
+   436→      } finally {
+   437→        setIsLoading(false);
+   438→      }
+   439→    }
+   440→    fetchProgress();
+   441→  }, []);
+   442→
+   443→  // ─── Loading state ───
+   444→  if (isLoading) {
+   445→    return <LoadingSkeleton />;
+   446→  }
+   447→
+   448→  // ─── Error state ───
+   449→  if (error) {
+   450→    return (
+   451→      <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+   452→        <div className="mb-8">
+   453→          <h1
+   454→            className="mb-2 text-2xl font-bold text-[var(--text-primary)] sm:text-3xl"
+   455→            style={{ fontFamily: "var(--font-heading-cfg)" }}
+   456→          >
+   457→            Your Progress
+   458→          </h1>
+   459→          <p className="text-[var(--text-secondary)]">
+   460→            Track your fluency journey with detailed analytics and achievements
+   461→          </p>
+   462→        </div>
+   463→
+   464→        <div className="rounded-2xl border border-[var(--state-error)]/20 bg-[var(--state-error-light)] p-6 text-center">
+   465→          <AlertCircle className="mx-auto mb-3 h-8 w-8 text-[var(--state-error)]" />
+   466→          <h3 className="mb-1 text-sm font-semibold text-[var(--text-primary)]">
+   467→            Failed to load progress
+   468→          </h3>
+   469→          <p className="mb-4 text-sm text-[var(--text-secondary)]">{error}</p>
+   470→          <Button variant="outline" onClick={() => window.location.reload()}>
+   471→            Try Again
+   472→          </Button>
+   473→        </div>
+   474→      </div>
+   475→    );
+   476→  }
+   477→
+   478→  // ─── Empty state (no conversations at all) ───
+   479→  if (!data || (data.totalConversations === 0 && data.totalMessages === 0)) {
+   480→    return <EmptyState />;
+   481→  }
+   482→
+   483→  return (
+   484→    <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+   485→      {/* Header */}
+   486→      <div className="mb-8">
+   487→        <h1
+   488→          className="mb-2 text-2xl font-bold text-[var(--text-primary)] sm:text-3xl"
+   489→          style={{ fontFamily: "var(--font-heading-cfg)" }}
+   490→        >
+   491→          Your Progress
+   492→        </h1>
+   493→        <p className="text-[var(--text-secondary)]">
+   494→          Track your fluency journey with detailed analytics and achievements
+   495→        </p>
+   496→      </div>
+   497→
+   498→      {/* ═══ Overview Stats Grid ═══ */}
+   499→      <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
+   500→        <StatCard
+   501→          icon={MessageSquare}
+   502→          label="Conversations"
+   503→          value={String(data.totalConversations)}
+   504→          iconColor="text-[var(--accent-primary)]"
+   505→          iconBg="bg-[var(--accent-light)]"
+   506→        />
+   507→        <StatCard
+   508→          icon={MessageSquare}
+   509→          label="Messages"
+   510→          value={String(data.totalMessages)}
+   511→          iconColor="text-[var(--accent-secondary)]"
+   512→          iconBg="bg-[var(--accent-secondary-light)]"
+   513→        />
+   514→        <StatCard
+   515→          icon={Clock}
+   516→          label="Practice Time"
+   517→          value={formatMinutes(data.totalMinutes)}
+   518→          iconColor="text-[var(--state-success)]"
+   519→          iconBg="bg-green-50 dark:bg-green-900/20"
+   520→        />
+   521→        <StatCard
+   522→          icon={Zap}
+   523→          label="XP Points"
+   524→          value={String(data.xpPoints)}
+   525→          iconColor="text-[var(--color-gold)]"
+   526→          iconBg="bg-[var(--color-gold-light)]"
+   527→        />
+   528→      </div>
+   529→
+   530→      {/* ═══ Streak + Score Row ═══ */}
+   531→      <div className="mb-8 grid grid-cols-1 gap-4 md:grid-cols-2">
+   532→        {/* Streak Card */}
+   533→        <div className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5 sm:p-6">
+   534→          <h3
+   535→            className="mb-4 text-base font-semibold text-[var(--text-primary)]"
+   536→            style={{ fontFamily: "var(--font-heading-cfg)" }}
+   537→          >
+   538→            Learning Streak
+   539→          </h3>
+   540→          <div className="flex items-center gap-5">
+   541→            <div
+   542→              className={`flex h-16 w-16 items-center justify-center rounded-2xl ${
+   543→                data.currentStreak > 0
+   544→                  ? "bg-[var(--color-gold-light)]"
+   545→                  : "bg-[var(--bg-elevated)]"
+   546→              }`}
+   547→            >
+   548→              <Flame
+   549→                className={`h-8 w-8 ${
+   550→                  data.currentStreak > 0
+   551→                    ? "text-[var(--color-gold)]"
+   552→                    : "text-[var(--text-muted)]"
+   553→                }`}
+   554→              />
+   555→            </div>
+   556→            <div>
+   557→              <p
+   558→                className="text-3xl font-bold text-[var(--text-primary)]"
+   559→                style={{ fontFamily: "var(--font-heading-cfg)" }}
+   560→              >
+   561→                {data.currentStreak}
+   562→              </p>
+   563→              <p className="text-sm text-[var(--text-secondary)]">
+   564→                {data.currentStreak === 1 ? "day streak" : "day streak"}
+   565→              </p>
+   566→              <div className="mt-1 flex items-center gap-1.5">
+   567→                <Trophy className="h-3.5 w-3.5 text-[var(--text-muted)]" />
+   568→                <span className="text-xs text-[var(--text-muted)]">
+   569→                  Best: {data.longestStreak} days
+   570→                </span>
+   571→              </div>
+   572→            </div>
+   573→          </div>
+   574→
+   575→          {/* Streak encouragement */}
+   576→          {data.currentStreak > 0 && (
+   577→            <div className="mt-4 rounded-lg bg-[var(--color-gold-light)] px-3 py-2">
+   578→              <p className="text-xs font-medium text-[var(--color-gold)]">
+   579→                {data.currentStreak >= 7
+   580→                  ? "Amazing! Keep the momentum going! 🔥"
+   581→                  : data.currentStreak >= 3
+   582→                    ? "Great streak! Don't break it!"
+   583→                    : "Nice start! Practice daily to build your streak!"}
+   584→              </p>
+   585→            </div>
+   586→          )}
+   587→        </div>
+   588→
+   589→        {/* Average Score Card */}
+   590→        <div className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5 sm:p-6">
+   591→          <div className="mb-4 flex items-center justify-between">
+   592→            <h3
+   593→              className="text-base font-semibold text-[var(--text-primary)]"
+   594→              style={{ fontFamily: "var(--font-heading-cfg)" }}
+   595→            >
+   596→              Average Score
+   597→            </h3>
+   598→            <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+   599→              data.avgScore >= 70
+   600→                ? "bg-[var(--accent-light)] text-[var(--accent-primary)]"
+   601→                : "bg-[var(--color-gold-light)] text-[var(--color-gold)]"
+   602→            }`}>
+   603→              <TrendingUp className="h-3 w-3" />
+   604→              {getScoreLabel(data.avgScore)}
+   605→            </span>
+   606→          </div>
+   607→          <div className="flex items-center justify-center">
+   608→            <CircularProgress value={data.avgScore} />
+   609→          </div>
+   610→
+   611→          {/* Additional stats */}
+   612→          <div className="mt-4 grid grid-cols-2 gap-3">
+   613→            <div className="rounded-lg bg-[var(--bg-elevated)] p-2.5 text-center">
+   614→              <p className="text-sm font-bold text-[var(--text-primary)]" style={{ fontFamily: "var(--font-heading-cfg)" }}>
+   615→                {data.totalWordsLearned}
+   616→              </p>
+   617→              <p className="text-[10px] text-[var(--text-muted)]">Words Learned</p>
+   618→            </div>
+   619→            <div className="rounded-lg bg-[var(--bg-elevated)] p-2.5 text-center">
+   620→              <p className="text-sm font-bold text-[var(--text-primary)]" style={{ fontFamily: "var(--font-heading-cfg)" }}>
+   621→                {data.totalCorrections}
+   622→              </p>
+   623→              <p className="text-[10px] text-[var(--text-muted)]">Corrections</p>
+   624→            </div>
+   625→          </div>
+   626→        </div>
+   627→      </div>
+   628→
+   629→      {/* ═══ Weekly Activity Chart ═══ */}
+   630→      <div className="mb-8">
+   631→        <WeeklyChart data={data.weeklyActivity} />
+   632→      </div>
+   633→
+   634→      {/* ═══ Language Progress ═══ */}
+   635→      {data.languageProgress.length > 0 && (
+   636→        <div className="mb-8">
+   637→          <div className="mb-4 flex items-center justify-between">
+   638→            <h2
+   639→              className="text-base font-semibold text-[var(--text-primary)]"
+   640→              style={{ fontFamily: "var(--font-heading-cfg)" }}
+   641→            >
+   642→              Language Progress
+   643→            </h2>
+   644→            <span className="text-xs text-[var(--text-muted)]">
+   645→              {data.languageProgress.length} {data.languageProgress.length === 1 ? "language" : "languages"}
+   646→            </span>
+   647→          </div>
+   648→          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+   649→            {data.languageProgress.map((lang) => (
+   650→              <LanguageCard key={lang.languagePair} lang={lang} />
+   651→            ))}
+   652→          </div>
+   653→        </div>
+   654→      )}
+   655→
+   656→      {/* ═══ Level Progress ═══ */}
+   657→      <div className="mb-8">
+   658→        <div className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5 sm:p-6">
+   659→          <div className="mb-4 flex items-center justify-between">
+   660→            <div className="flex items-center gap-2">
+   661→              <Target className="h-5 w-5 text-[var(--accent-primary)]" />
+   662→              <h3
+   663→                className="text-base font-semibold text-[var(--text-primary)]"
+   664→                style={{ fontFamily: "var(--font-heading-cfg)" }}
+   665→              >
+   666→                Level Progress
+   667→              </h3>
+   668→            </div>
+   669→            <span className="text-sm font-medium text-[var(--accent-primary)]">
+   670→              {data.levelProgress}%
+   671→            </span>
+   672→          </div>
+   673→          <div className="h-3 w-full overflow-hidden rounded-full bg-[var(--bg-elevated)]">
+   674→            <div
+   675→              className="h-full rounded-full bg-gradient-to-r from-[var(--accent-primary)] to-[var(--accent-secondary)] transition-all duration-700 ease-out"
+   676→              style={{ width: `${data.levelProgress}%` }}
+   677→            />
+   678→          </div>
+   679→          <p className="mt-2 text-xs text-[var(--text-muted)]">
+   680→            {data.levelProgress >= 80
+   681→              ? "Almost there! Keep pushing to the next level!"
+   682→              : data.levelProgress >= 50
+   683→                ? "Halfway there! Keep up the great work!"
+   684→                : data.levelProgress >= 25
+   685→                  ? "Good progress! Practice more to level up faster."
+   686→                  : "Just getting started! Every conversation counts."}
+   687→          </p>
+   688→        </div>
+   689→      </div>
+   690→
+   691→      {/* ═══ Last Practice Info ═══ */}
+   692→      {data.lastPracticeAt && (
+   693→        <div className="mb-8">
+   694→          <div className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-4">
+   695→            <div className="flex items-center gap-3">
+   696→              <Clock className="h-4 w-4 text-[var(--text-muted)]" />
+   697→              <p className="text-sm text-[var(--text-secondary)]">
+   698→                Last practice:{" "}
+   699→                <span className="font-medium text-[var(--text-primary)]">
+   700→                  {new Date(data.lastPracticeAt).toLocaleDateString("en-US", {
+   701→                    weekday: "long",
+   702→                    month: "short",
+   703→                    day: "numeric",
+   704→                    hour: "numeric",
+   705→                    minute: "2-digit",
+   706→                  })}
+   707→                </span>
+   708→              </p>
+   709→            </div>
+   710→          </div>
+   711→        </div>
+   712→      )}
+   713→
+   714→      {/* ═══ Quick CTA ═══ */}
+   715→      <div className="mb-4">
+   716→        <div className="overflow-hidden rounded-2xl border-0 bg-gradient-to-r from-[var(--accent-primary)] to-[var(--accent-secondary)] p-5 sm:p-6 text-white">
+   717→          <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+   718→            <div>
+   719→              <h3
+   720→                className="mb-1 text-lg font-bold"
+   721→                style={{ fontFamily: "var(--font-heading-cfg)" }}
+   722→              >
+   723→                Keep the momentum going!
+   724→              </h3>
+   725→              <p className="text-sm text-white/80">
+   726→                Practice daily to build your streak and improve your fluency score.
+   727→              </p>
+   728→            </div>
+   729→            <Link href="/learn">
+   730→              <Button className="gap-2 bg-white/20 text-white hover:bg-white/30 border-0 shrink-0">
+   731→                <MessageSquare className="h-4 w-4" />
+   732→                Start Practice
+   733→              </Button>
+   734→            </Link>
+   735→          </div>
+   736→        </div>
+   737→      </div>
+   738→    </div>
+   739→  );
+   740→}
+   741→

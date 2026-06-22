@@ -99,11 +99,19 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       status,
       stripeSubscriptionId: subscriptionId || null,
       stripePriceId: subscription?.items?.data?.[0]?.price?.id || null,
-      currentPeriodStart: subscription ? new Date((subscription as any).current_period_start * 1000).toISOString() : null,
-      currentPeriodEnd: subscription ? new Date((subscription as any).current_period_end * 1000).toISOString() : null,
+      currentPeriodStart: subscription
+        ? new Date((subscription as any).current_period_start * 1000).toISOString()
+        : null,
+      currentPeriodEnd: subscription
+        ? new Date((subscription as any).current_period_end * 1000).toISOString()
+        : null,
       cancelAtPeriodEnd: subscription?.cancel_at_period_end ?? false,
-      trialStart: subscription?.trial_start ? new Date(subscription.trial_start * 1000).toISOString() : null,
-      trialEnd: subscription?.trial_end ? new Date(subscription.trial_end * 1000).toISOString() : null,
+      trialStart: subscription?.trial_start
+        ? new Date(subscription.trial_start * 1000).toISOString()
+        : null,
+      trialEnd: subscription?.trial_end
+        ? new Date(subscription.trial_end * 1000).toISOString()
+        : null,
       updatedAt: now,
     })
     .eq("userId", userId);
@@ -148,8 +156,12 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
       currentPeriodStart: new Date((subscription as any).current_period_start * 1000).toISOString(),
       currentPeriodEnd: new Date((subscription as any).current_period_end * 1000).toISOString(),
       cancelAtPeriodEnd: subscription.cancel_at_period_end,
-      trialStart: subscription.trial_start ? new Date(subscription.trial_start * 1000).toISOString() : null,
-      trialEnd: subscription.trial_end ? new Date(subscription.trial_end * 1000).toISOString() : null,
+      trialStart: subscription.trial_start
+        ? new Date(subscription.trial_start * 1000).toISOString()
+        : null,
+      trialEnd: subscription.trial_end
+        ? new Date(subscription.trial_end * 1000).toISOString()
+        : null,
       updatedAt: now,
     })
     .eq("id", subRecord.id);
@@ -157,7 +169,9 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
   if (error) {
     console.error("[Stripe Webhook] Error updating subscription:", error);
   } else {
-    console.log(`[Stripe Webhook] Subscription updated for user ${subRecord.userId}: ${plan} / ${status}`);
+    console.log(
+      `[Stripe Webhook] Subscription updated for user ${subRecord.userId}: ${plan} / ${status}`
+    );
   }
 }
 

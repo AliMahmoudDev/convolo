@@ -67,12 +67,10 @@ export default function ForgotPasswordPage() {
               <CheckCircle2 className="h-7 w-7 text-green-600" />
             </div>
             <div>
-              <h2 className="mb-1 text-lg font-semibold text-[var(--text-primary)]">
-                Email sent!
-              </h2>
+              <h2 className="mb-1 text-lg font-semibold text-[var(--text-primary)]">Email sent!</h2>
               <p className="text-sm text-[var(--text-secondary)]">
-                If an account with <strong>{email}</strong> exists, you&apos;ll receive a
-                password reset link shortly.
+                If an account with <strong>{email}</strong> exists, you&apos;ll receive a password
+                reset link shortly.
               </p>
             </div>
           </div>

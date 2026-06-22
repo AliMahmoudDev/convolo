@@ -1,18 +1,24 @@
 /**
  * Vocabulary Book Page — Review and manage learned vocabulary
  *
+ * ORGANIZED BY LANGUAGE:
+ * ─────────────────────
+ * - Vocabulary is grouped by language pair (e.g., English → Arabic)
+ * - Language tabs at the top let you switch between languages
+ * - Each section shows only words from that language pair
+ * - Stats per language section
+ *
  * Features:
- * - Search bar to filter words
+ * - Language pair tabs with word counts
+ * - Search bar to filter words within the current language
  * - Grid of vocabulary cards with word, translation, part of speech, definition, example
  * - Empty state when no words collected yet
- * - Loading skeleton while fetching
- * - Mobile-responsive grid layout
- * - "Review" button for future SRS integration
+ * - Review button per language
  */
 
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import {
   BookOpen,
@@ -21,13 +27,15 @@ import {
   MessageSquare,
   X,
   Volume2,
+  Globe,
+  ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SUPPORTED_LANGUAGES } from "@/lib/constants";
-import { useTargetLanguage, useNativeLanguage } from "@/stores/profile-store";
+import { useTargetLanguage, useNativeLanguage, useProfileStore } from "@/stores/profile-store";
 
 // ═══════════════════════════════════════════
 // Types
@@ -39,6 +47,14 @@ interface VocabItem {
   definition?: string;
   partOfSpeech?: string;
   exampleSentence?: string;
+  languagePair?: string;
+}
+
+interface LanguageGroup {
+  languagePair: string;
+  nativeLang: string;
+  targetLang: string;
+  count: number;
 }
 
 interface VocabResponse {
@@ -47,6 +63,7 @@ interface VocabResponse {
   page: number;
   limit: number;
   totalPages: number;
+  languageGroups: LanguageGroup[];
 }
 
 // ═══════════════════════════════════════════
@@ -118,7 +135,7 @@ function VocabularySkeleton() {
 // Empty State
 // ═══════════════════════════════════════════
 
-function EmptyState({ hasSearch }: { hasSearch: boolean }) {
+function EmptyState({ hasSearch, languageName }: { hasSearch: boolean; languageName?: string }) {
   if (hasSearch) {
     return (
       <div className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-12 text-center">
@@ -145,11 +162,12 @@ function EmptyState({ hasSearch }: { hasSearch: boolean }) {
         className="mb-2 text-lg font-semibold text-[var(--text-primary)]"
         style={{ fontFamily: "var(--font-heading-cfg)" }}
       >
-        No words yet
+        {languageName ? `No ${languageName} words yet` : "No words yet"}
       </h3>
       <p className="mx-auto mb-6 max-w-md text-sm text-[var(--text-secondary)]">
-        Start a conversation and words you encounter will be automatically added to your vocabulary
-        book. Practice them with spaced repetition to make them stick forever.
+        Start a conversation in {languageName || "your target language"} and words you encounter
+        will be automatically added here. Practice them with spaced repetition to make them stick
+        forever.
       </p>
       <Link href="/learn">
         <Button className="gap-2">
@@ -190,13 +208,15 @@ function VocabularyCard({ item }: { item: VocabItem }) {
 
       {/* Definition */}
       {item.definition && (
-        <p className="mb-2 text-sm leading-relaxed text-[var(--text-secondary)]">{item.definition}</p>
+        <p className="mb-2 text-sm leading-relaxed text-[var(--text-secondary)]">
+          {item.definition}
+        </p>
       )}
 
       {/* Example Sentence */}
       {item.exampleSentence && (
         <div className="mt-3 border-t border-[var(--border-default)] pt-3">
-          <p className="text-sm italic leading-relaxed text-[var(--text-muted)]">
+          <p className="text-sm leading-relaxed text-[var(--text-muted)] italic">
             &ldquo;{item.exampleSentence}&rdquo;
           </p>
         </div>
@@ -205,11 +225,7 @@ function VocabularyCard({ item }: { item: VocabItem }) {
       {/* Actions */}
       <div className="mt-4 flex items-center gap-2">
         <Link href="/vocabulary/review">
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5 text-xs"
-          >
+          <Button variant="outline" size="sm" className="gap-1.5 text-xs">
             <RotateCcw className="h-3.5 w-3.5" />
             Review
           </Button>
@@ -231,12 +247,51 @@ function VocabularyCard({ item }: { item: VocabItem }) {
 }
 
 // ═══════════════════════════════════════════
+// Language Tab Component
+// ═══════════════════════════════════════════
+
+function LanguageTab({
+  group,
+  isActive,
+  onClick,
+}: {
+  group: LanguageGroup;
+  isActive: boolean;
+  onClick: () => void;
+}) {
+  const nativeInfo = getLangInfo(group.nativeLang);
+  const targetInfo = getLangInfo(group.targetLang);
+
+  return (
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-all duration-200 ${
+        isActive
+          ? "bg-[var(--accent-primary)] text-white shadow-sm"
+          : "border border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:border-[var(--accent-primary)]/30 hover:bg-[var(--accent-light)] hover:text-[var(--accent-primary)]"
+      }`}
+    >
+      <span className="text-base">{targetInfo.flagEmoji}</span>
+      <span>{targetInfo.name}</span>
+      <span
+        className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+          isActive ? "bg-white/20 text-white" : "bg-[var(--bg-elevated)] text-[var(--text-muted)]"
+        }`}
+      >
+        {group.count}
+      </span>
+    </button>
+  );
+}
+
+// ═══════════════════════════════════════════
 // Main Page Component
 // ═══════════════════════════════════════════
 
 export default function VocabularyPage() {
   const targetLang = useTargetLanguage();
   const nativeLang = useNativeLanguage();
+  const profile = useProfileStore((s) => s.profile);
 
   const [items, setItems] = useState<VocabItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -247,69 +302,109 @@ export default function VocabularyPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Language groups + active language
+  const [languageGroups, setLanguageGroups] = useState<LanguageGroup[]>([]);
+  const [activeLanguagePair, setActiveLanguagePair] = useState<string>("");
+
+  // Default to current profile language pair
+  const defaultLanguagePair = useMemo(
+    () => `${profile?.nativeLanguage || "en"}-${profile?.targetLanguage || "ar"}`,
+    [profile?.nativeLanguage, profile?.targetLanguage]
+  );
+
   // ─── Fetch vocabulary ───
-  const fetchVocabulary = useCallback(async (pageNum: number, searchQuery: string) => {
-    setIsLoading(true);
-    setError(null);
+  const fetchVocabulary = useCallback(
+    async (pageNum: number, searchQuery: string, langPair: string) => {
+      setIsLoading(true);
+      setError(null);
 
-    try {
-      const params = new URLSearchParams({
-        page: String(pageNum),
-        limit: "50",
-      });
-      if (searchQuery) {
-        params.set("search", searchQuery);
+      try {
+        const params = new URLSearchParams({
+          page: String(pageNum),
+          limit: "50",
+        });
+        if (searchQuery) {
+          params.set("search", searchQuery);
+        }
+        if (langPair) {
+          params.set("languagePair", langPair);
+        }
+
+        const res = await fetch(`/api/vocabulary?${params.toString()}`);
+        const data = await res.json();
+
+        if (!data.success) {
+          setError(data.error?.message || "Failed to load vocabulary");
+          return;
+        }
+
+        setItems(data.data.items || []);
+        setTotal(data.data.total || 0);
+        setPage(data.data.page || 1);
+        setTotalPages(data.data.totalPages || 0);
+
+        // Update language groups
+        if (data.data.languageGroups) {
+          setLanguageGroups(data.data.languageGroups);
+        }
+      } catch {
+        setError("Something went wrong. Please try again.");
+      } finally {
+        setIsLoading(false);
       }
-
-      const res = await fetch(`/api/vocabulary?${params.toString()}`);
-      const data = await res.json();
-
-      if (!data.success) {
-        setError(data.error?.message || "Failed to load vocabulary");
-        return;
-      }
-
-      setItems(data.data.items || []);
-      setTotal(data.data.total || 0);
-      setPage(data.data.page || 1);
-      setTotalPages(data.data.totalPages || 0);
-    } catch {
-      setError("Something went wrong. Please try again.");
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+    },
+    []
+  );
 
   // ─── Initial load ───
   useEffect(() => {
-    fetchVocabulary(1, "");
-  }, [fetchVocabulary]);
+    const langPair = activeLanguagePair || defaultLanguagePair;
+    fetchVocabulary(1, "", langPair);
+  }, [fetchVocabulary, activeLanguagePair, defaultLanguagePair]);
 
   // ─── Search with debounce ───
   useEffect(() => {
     const timer = setTimeout(() => {
       setSearch(searchInput);
       setPage(1);
-      fetchVocabulary(1, searchInput);
+      const langPair = activeLanguagePair || defaultLanguagePair;
+      fetchVocabulary(1, searchInput, langPair);
     }, 350);
 
     return () => clearTimeout(timer);
-  }, [searchInput, fetchVocabulary]);
+  }, [searchInput, fetchVocabulary, activeLanguagePair, defaultLanguagePair]);
 
   // ─── Clear search ───
   const handleClearSearch = () => {
     setSearchInput("");
     setSearch("");
     setPage(1);
-    fetchVocabulary(1, "");
+    const langPair = activeLanguagePair || defaultLanguagePair;
+    fetchVocabulary(1, "", langPair);
   };
 
   // ─── Page change ───
   const handlePageChange = (newPage: number) => {
     setPage(newPage);
-    fetchVocabulary(newPage, search);
+    const langPair = activeLanguagePair || defaultLanguagePair;
+    fetchVocabulary(newPage, search, langPair);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
+
+  // ─── Language tab change ───
+  const handleLanguageChange = (langPair: string) => {
+    setActiveLanguagePair(langPair);
+    setPage(1);
+    setSearchInput("");
+    setSearch("");
+    fetchVocabulary(1, "", langPair);
+  };
+
+  // ─── Current language display info ───
+  const currentPair = activeLanguagePair || defaultLanguagePair;
+  const [currentNative, currentTarget] = currentPair.split("-");
+  const currentTargetInfo = getLangInfo(currentTarget);
+  const currentNativeInfo = getLangInfo(currentNative);
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
@@ -327,55 +422,82 @@ export default function VocabularyPage() {
               Vocabulary Book
             </h1>
             <p className="text-sm text-[var(--text-secondary)]">
-              {targetLang.flagEmoji} {targetLang.name} → {nativeLang.flagEmoji} {nativeLang.name}
+              Words you encounter in conversations are automatically saved here for review
             </p>
           </div>
         </div>
-        <p className="mt-2 text-[var(--text-secondary)]">
-          Words you encounter in conversations are automatically saved here for review
-        </p>
       </div>
+
+      {/* ═══ Language Tabs ═══ */}
+      {languageGroups.length > 1 ? (
+        <div className="mb-6">
+          <div className="custom-scrollbar flex items-center gap-2 overflow-x-auto pb-1">
+            <Globe className="h-4 w-4 shrink-0 text-[var(--text-muted)]" />
+            {languageGroups.map((group) => (
+              <LanguageTab
+                key={group.languagePair}
+                group={group}
+                isActive={currentPair === group.languagePair}
+                onClick={() => handleLanguageChange(group.languagePair)}
+              />
+            ))}
+          </div>
+        </div>
+      ) : (
+        /* Single language indicator */
+        <div className="mb-6 flex items-center gap-2 rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] px-4 py-2.5">
+          <span className="text-base">{currentTargetInfo.flagEmoji}</span>
+          <span className="text-sm font-medium text-[var(--text-primary)]">
+            {currentNativeInfo.name} → {currentTargetInfo.name}
+          </span>
+          {total > 0 && (
+            <Badge variant="secondary" className="text-xs">
+              {total} {total === 1 ? "word" : "words"}
+            </Badge>
+          )}
+        </div>
+      )}
 
       {/* ═══ Search Bar + Stats ═══ */}
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
+        <div className="relative max-w-md flex-1">
+          <Search className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
           <Input
             type="text"
-            placeholder="Search words, translations, definitions..."
+            placeholder={`Search ${currentTargetInfo.name} words, translations...`}
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
-            className="pl-9 pr-9 h-10 rounded-xl border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
+            className="h-10 rounded-xl border-[var(--border-default)] bg-[var(--bg-surface)] pr-9 pl-9 text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
           />
           {searchInput && (
             <button
               onClick={handleClearSearch}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+              className="absolute top-1/2 right-3 -translate-y-1/2 text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
             >
               <X className="h-4 w-4" />
             </button>
           )}
         </div>
 
-        {total > 0 && (
-          <div className="flex items-center gap-3 text-sm text-[var(--text-secondary)]">
+        <div className="flex items-center gap-3 text-sm text-[var(--text-secondary)]">
+          {total > 0 && (
             <span>
               <strong className="text-[var(--text-primary)]">{total}</strong>{" "}
-              {total === 1 ? "word" : "words"}
+              {total === 1 ? "word" : "words"} in {currentTargetInfo.name}
             </span>
-            {search && (
-              <Badge variant="secondary" className="text-xs">
-                Filtered
-              </Badge>
-            )}
-            <Link href="/vocabulary/review">
-              <Button size="sm" className="gap-1.5">
-                <RotateCcw className="h-3.5 w-3.5" />
-                Start Review
-              </Button>
-            </Link>
-          </div>
-        )}
+          )}
+          {search && (
+            <Badge variant="secondary" className="text-xs">
+              Filtered
+            </Badge>
+          )}
+          <Link href={`/vocabulary/review${currentPair ? `?languagePair=${currentPair}` : ""}`}>
+            <Button size="sm" className="gap-1.5">
+              <RotateCcw className="h-3.5 w-3.5" />
+              Review {currentTargetInfo.name}
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {/* ═══ Error State ═══ */}
@@ -389,9 +511,24 @@ export default function VocabularyPage() {
       {isLoading ? (
         <VocabularySkeleton />
       ) : items.length === 0 ? (
-        <EmptyState hasSearch={!!search} />
+        <EmptyState hasSearch={!!search} languageName={currentTargetInfo.name} />
       ) : (
         <>
+          {/* Language section header */}
+          <div className="mb-4 flex items-center gap-2">
+            <span className="text-base">{currentTargetInfo.flagEmoji}</span>
+            <h2
+              className="text-base font-semibold text-[var(--text-primary)]"
+              style={{ fontFamily: "var(--font-heading-cfg)" }}
+            >
+              {currentTargetInfo.name} Vocabulary
+            </h2>
+            <ChevronRight className="h-4 w-4 text-[var(--text-muted)]" />
+            <span className="text-sm text-[var(--text-muted)]">
+              {currentNativeInfo.name} translations
+            </span>
+          </div>
+
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {items.map((item) => (
               <VocabularyCard key={`${item.word}-${item.translation}`} item={item} />

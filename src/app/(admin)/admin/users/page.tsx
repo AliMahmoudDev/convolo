@@ -177,13 +177,13 @@ export default function AdminUsersPage() {
         {/* Search */}
         <form onSubmit={handleSearch} className="flex-1">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
+            <Search className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
             <input
               type="text"
               placeholder="Search by name or email..."
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              className="w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] py-2.5 pl-10 pr-4 text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none transition-colors focus:border-[var(--accent-primary)] focus:ring-2 focus:ring-[var(--accent-primary)]/20"
+              className="w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] py-2.5 pr-4 pl-10 text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] transition-colors outline-none focus:border-[var(--accent-primary)] focus:ring-2 focus:ring-[var(--accent-primary)]/20"
             />
           </div>
         </form>
@@ -195,7 +195,7 @@ export default function AdminUsersPage() {
             setPlanFilter(e.target.value);
             setPage(1);
           }}
-          className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-2.5 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent-primary)]"
+          className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-2.5 text-sm text-[var(--text-primary)] transition-colors outline-none focus:border-[var(--accent-primary)]"
         >
           <option value="">All Plans</option>
           <option value="free">Free</option>
@@ -272,7 +272,7 @@ export default function AdminUsersPage() {
                         {user.nativeLanguage}
                         {user.targetLanguage ? ` → ${user.targetLanguage}` : ""}
                       </td>
-                      <td className="hidden px-5 py-3 text-sm capitalize text-[var(--text-secondary)] sm:table-cell">
+                      <td className="hidden px-5 py-3 text-sm text-[var(--text-secondary)] capitalize sm:table-cell">
                         {user.proficiencyLevel}
                       </td>
                       <td className="px-5 py-3">{getPlanBadge(user.plan)}</td>

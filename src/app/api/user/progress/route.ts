@@ -106,19 +106,26 @@ export async function GET() {
       .eq("userId", dbUser.id);
 
     // Aggregate XP and score across all language pairs
-    const xpPoints = (progressRecord || []).reduce((sum: any, r: any) => sum + (r.xpPoints || 0), 0);
+    const xpPoints = (progressRecord || []).reduce(
+      (sum: any, r: any) => sum + (r.xpPoints || 0),
+      0
+    );
 
     // Weighted average score
     const validScores = (progressRecord || []).filter((r: any) => r.avgScore != null);
     const avgScore =
       validScores.length > 0
-        ? Math.round(validScores.reduce((sum: any, r: any) => sum + (r.avgScore || 0), 0) / validScores.length)
+        ? Math.round(
+            validScores.reduce((sum: any, r: any) => sum + (r.avgScore || 0), 0) /
+              validScores.length
+          )
         : 0;
 
     const levelProgress =
       validScores.length > 0
         ? Math.round(
-            validScores.reduce((sum: any, r: any) => sum + (r.levelProgress || 0), 0) / validScores.length
+            validScores.reduce((sum: any, r: any) => sum + (r.levelProgress || 0), 0) /
+              validScores.length
           )
         : 0;
 

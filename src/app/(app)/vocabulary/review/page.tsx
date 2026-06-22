@@ -1,20 +1,27 @@
 /**
  * SRS Review Page — Flashcard-style vocabulary review
  *
+ * ORGANIZED BY LANGUAGE:
+ * ─────────────────────
+ * - Only reviews words from the selected language pair
+ * - Language indicator shown prominently at the top
+ * - Language pair passed as query param to API
+ *
  * Features:
  * - Full-screen flashcard experience
  * - Card flip animation (CSS transform)
  * - 4 rating buttons: Again (red), Hard (orange), Good (green), Easy (blue)
  * - Progress bar at top
- * - Review Complete summary at end
+ * - Review Complete summary at end (broken down by language)
  * - Empty state when no cards due
  * - Mobile-first, touch-friendly design
  */
 
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   BookOpen,
@@ -24,10 +31,12 @@ import {
   Target,
   CheckCircle2,
   Sparkles,
+  Globe,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { useTargetLanguage, useNativeLanguage } from "@/stores/profile-store";
+import { SUPPORTED_LANGUAGES } from "@/lib/constants";
+import { useTargetLanguage, useNativeLanguage, useProfileStore } from "@/stores/profile-store";
 
 // ═══════════════════════════════════════════
 // Types
@@ -50,6 +59,7 @@ interface ReviewItem {
   exampleSentence?: string;
   itemId: string;
   srs: SrsMeta;
+  languagePair?: string;
 }
 
 interface ReviewResult {
@@ -58,6 +68,21 @@ interface ReviewResult {
 }
 
 type ReviewPhase = "loading" | "empty" | "reviewing" | "complete";
+
+// ═══════════════════════════════════════════
+// Helper — get language info
+// ═══════════════════════════════════════════
+
+function getLangInfo(code: string) {
+  return (
+    SUPPORTED_LANGUAGES.find((l) => l.code === code) || {
+      code,
+      name: code,
+      flagEmoji: "🌐",
+      nativeName: code,
+    }
+  );
+}
 
 // ═══════════════════════════════════════════
 // Part-of-speech badge color map
@@ -120,9 +145,20 @@ const RATING_BUTTONS = [
 // Main Page Component
 // ═══════════════════════════════════════════
 
-export default function VocabularyReviewPage() {
+function VocabularyReviewContent() {
   const targetLang = useTargetLanguage();
   const nativeLang = useNativeLanguage();
+  const profile = useProfileStore((s) => s.profile);
+
+  // Get language pair from URL params or default to profile
+  const searchParams = useSearchParams();
+  const urlLanguagePair = searchParams.get("languagePair") || "";
+  const profileLanguagePair = `${profile?.nativeLanguage || "en"}-${profile?.targetLanguage || "ar"}`;
+  const activeLanguagePair = urlLanguagePair || profileLanguagePair;
+
+  const [nativeCode, targetCode] = activeLanguagePair.split("-");
+  const reviewTargetInfo = getLangInfo(targetCode);
+  const reviewNativeInfo = getLangInfo(nativeCode);
 
   // ─── State ───
   const [phase, setPhase] = useState<ReviewPhase>("loading");
@@ -140,38 +176,46 @@ export default function VocabularyReviewPage() {
   const progressPercent = totalItems > 0 ? (reviewedCount / totalItems) * 100 : 0;
 
   // ─── Fetch review items ───
-  const loadReviewItems = useCallback(async (resetState: boolean = true) => {
-    if (resetState) {
-      setPhase("loading");
-      setError(null);
-      setResults([]);
-      setCurrentIndex(0);
-      setIsFlipped(false);
-    }
-
-    try {
-      const res = await fetch("/api/vocabulary/review");
-      const data = await res.json();
-
-      if (!data.success) {
-        setError(data.error?.message || "Failed to load review items");
-        setPhase("empty");
-        return;
+  const loadReviewItems = useCallback(
+    async (resetState: boolean = true) => {
+      if (resetState) {
+        setPhase("loading");
+        setError(null);
+        setResults([]);
+        setCurrentIndex(0);
+        setIsFlipped(false);
       }
 
-      const reviewItems: ReviewItem[] = data.data.items || [];
+      try {
+        const params = new URLSearchParams();
+        if (activeLanguagePair) {
+          params.set("languagePair", activeLanguagePair);
+        }
 
-      if (reviewItems.length === 0) {
+        const res = await fetch(`/api/vocabulary/review?${params.toString()}`);
+        const data = await res.json();
+
+        if (!data.success) {
+          setError(data.error?.message || "Failed to load review items");
+          setPhase("empty");
+          return;
+        }
+
+        const reviewItems: ReviewItem[] = data.data.items || [];
+
+        if (reviewItems.length === 0) {
+          setPhase("empty");
+        } else {
+          setItems(reviewItems);
+          setPhase("reviewing");
+        }
+      } catch {
+        setError("Something went wrong. Please try again.");
         setPhase("empty");
-      } else {
-        setItems(reviewItems);
-        setPhase("reviewing");
       }
-    } catch {
-      setError("Something went wrong. Please try again.");
-      setPhase("empty");
-    }
-  }, []);
+    },
+    [activeLanguagePair]
+  );
 
   // ─── Initial load ───
   useEffect(() => {
@@ -184,39 +228,42 @@ export default function VocabularyReviewPage() {
   };
 
   // ─── Handle rating ───
-  const handleRate = useCallback(async (quality: "again" | "hard" | "good" | "easy") => {
-    if (!currentItem || isSubmitting) return;
+  const handleRate = useCallback(
+    async (quality: "again" | "hard" | "good" | "easy") => {
+      if (!currentItem || isSubmitting) return;
 
-    setIsSubmitting(true);
+      setIsSubmitting(true);
 
-    // Record result locally
-    const result: ReviewResult = { itemId: currentItem.itemId, quality };
-    setResults((prev) => [...prev, result]);
+      // Record result locally
+      const result: ReviewResult = { itemId: currentItem.itemId, quality };
+      setResults((prev) => [...prev, result]);
 
-    // Submit to API (non-blocking, fire and forget for smooth UX)
-    fetch("/api/vocabulary/review", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ itemId: currentItem.itemId, quality }),
-    }).catch(() => {
-      // Silently fail — client tracks progress
-    });
+      // Submit to API (non-blocking, fire and forget for smooth UX)
+      fetch("/api/vocabulary/review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemId: currentItem.itemId, quality }),
+      }).catch(() => {
+        // Silently fail — client tracks progress
+      });
 
-    // Move to next card or complete
-    if (currentIndex + 1 >= totalItems) {
-      // Short delay for visual feedback
-      setTimeout(() => {
-        setPhase("complete");
-        setIsSubmitting(false);
-      }, 300);
-    } else {
-      setTimeout(() => {
-        setCurrentIndex((prev) => prev + 1);
-        setIsFlipped(false);
-        setIsSubmitting(false);
-      }, 250);
-    }
-  }, [currentItem, isSubmitting, currentIndex, totalItems]);
+      // Move to next card or complete
+      if (currentIndex + 1 >= totalItems) {
+        // Short delay for visual feedback
+        setTimeout(() => {
+          setPhase("complete");
+          setIsSubmitting(false);
+        }, 300);
+      } else {
+        setTimeout(() => {
+          setCurrentIndex((prev) => prev + 1);
+          setIsFlipped(false);
+          setIsSubmitting(false);
+        }, 250);
+      }
+    },
+    [currentItem, isSubmitting, currentIndex, totalItems]
+  );
 
   // ─── Keyboard shortcuts ───
   useEffect(() => {
@@ -258,7 +305,9 @@ export default function VocabularyReviewPage() {
       <div className="flex min-h-[80vh] items-center justify-center">
         <div className="text-center">
           <div className="mx-auto mb-4 h-12 w-12 animate-spin rounded-full border-4 border-[var(--border-default)] border-t-[var(--accent-primary)]" />
-          <p className="text-sm text-[var(--text-secondary)]">Loading review cards...</p>
+          <p className="text-sm text-[var(--text-secondary)]">
+            Loading {reviewTargetInfo.name} review cards...
+          </p>
         </div>
       </div>
     );
@@ -278,10 +327,11 @@ export default function VocabularyReviewPage() {
             className="mb-3 text-2xl font-bold text-[var(--text-primary)]"
             style={{ fontFamily: "var(--font-heading-cfg)" }}
           >
-            No cards to review
+            No {reviewTargetInfo.name} cards to review
           </h1>
           <p className="mb-8 text-[var(--text-secondary)]">
-            No cards to review right now. Start a conversation to learn new words!
+            No {reviewTargetInfo.name} cards due for review right now. Start a conversation to learn
+            new words, or check another language!
           </p>
 
           {error && (
@@ -327,8 +377,12 @@ export default function VocabularyReviewPage() {
           >
             Review Complete!
           </h1>
-          <p className="mb-8 text-[var(--text-secondary)]">
-            Great job reviewing your vocabulary. Keep it up!
+          <p className="mb-2 text-[var(--text-secondary)]">
+            Great job reviewing your {reviewTargetInfo.name} vocabulary. Keep it up!
+          </p>
+          <p className="mb-8 text-sm text-[var(--text-muted)]">
+            {reviewNativeInfo.flagEmoji} {reviewNativeInfo.name} → {reviewTargetInfo.flagEmoji}{" "}
+            {reviewTargetInfo.name}
           </p>
 
           {/* Stats Grid */}
@@ -390,7 +444,9 @@ export default function VocabularyReviewPage() {
                     >
                       <span className="text-sm font-bold">{count}</span>
                     </div>
-                    <p className="text-[10px] font-medium text-[var(--text-muted)]">{config.label}</p>
+                    <p className="text-[10px] font-medium text-[var(--text-muted)]">
+                      {config.label}
+                    </p>
                   </div>
                 );
               })}
@@ -438,8 +494,10 @@ export default function VocabularyReviewPage() {
               <span className="text-sm font-medium text-[var(--text-primary)]">
                 {reviewedCount + 1} of {totalItems}
               </span>
-              <span className="text-xs text-[var(--text-muted)]">
-                {targetLang.flagEmoji} {targetLang.name} → {nativeLang.flagEmoji} {nativeLang.name}
+              <span className="flex items-center gap-1 text-xs text-[var(--text-muted)]">
+                <Globe className="h-3 w-3" />
+                {reviewNativeInfo.flagEmoji} {reviewNativeInfo.name} → {reviewTargetInfo.flagEmoji}{" "}
+                {reviewTargetInfo.name}
               </span>
             </div>
             <Progress value={progressPercent} className="h-2" />
@@ -450,9 +508,17 @@ export default function VocabularyReviewPage() {
       {/* ─── Card Area ─── */}
       <div className="flex flex-1 items-center justify-center px-4 py-6">
         <div className="w-full max-w-lg">
+          {/* Language indicator badge */}
+          <div className="mb-4 flex items-center justify-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--accent-light)] px-3 py-1 text-xs font-medium text-[var(--accent-primary)]">
+              {reviewTargetInfo.flagEmoji} {reviewTargetInfo.name}
+            </span>
+            <span className="text-xs text-[var(--text-muted)]">Reviewing</span>
+          </div>
+
           {/* Flip Card Container */}
           <div
-            className="perspective-[1000px] cursor-pointer"
+            className="cursor-pointer perspective-[1000px]"
             onClick={handleFlip}
             role="button"
             tabIndex={0}
@@ -488,6 +554,9 @@ export default function VocabularyReviewPage() {
                       {currentItem?.word}
                     </h2>
 
+                    {/* Language hint */}
+                    <p className="mb-4 text-xs text-[var(--text-muted)]">{reviewTargetInfo.name}</p>
+
                     {/* Mastery indicator */}
                     {currentItem?.srs && (
                       <div className="mt-4 flex items-center gap-1">
@@ -505,15 +574,13 @@ export default function VocabularyReviewPage() {
                     )}
 
                     {/* Tap hint */}
-                    <p className="mt-6 text-xs text-[var(--text-muted)]">
-                      Tap to reveal answer
-                    </p>
+                    <p className="mt-6 text-xs text-[var(--text-muted)]">Tap to reveal answer</p>
                   </div>
                 </div>
               </div>
 
               {/* ─── Back of Card ─── */}
-              <div className="absolute inset-0 w-full [backface-visibility:hidden] [transform:rotateY(180deg)]">
+              <div className="absolute inset-0 w-full [transform:rotateY(180deg)] [backface-visibility:hidden]">
                 <div className="min-h-[320px] rounded-3xl border border-[var(--accent-primary)]/30 bg-[var(--bg-surface)] p-8 shadow-[var(--shadow-glow)] sm:min-h-[380px]">
                   <div className="flex h-full flex-col items-center justify-center text-center">
                     {/* Word (smaller) + Part of speech */}
@@ -534,8 +601,11 @@ export default function VocabularyReviewPage() {
                     </div>
 
                     {/* Translation */}
-                    <p className="mb-4 text-2xl font-semibold text-[var(--accent-primary)]">
+                    <p className="mb-1 text-2xl font-semibold text-[var(--accent-primary)]">
                       {currentItem?.translation}
+                    </p>
+                    <p className="mb-4 text-[10px] text-[var(--text-muted)]">
+                      {reviewNativeInfo.name} translation
                     </p>
 
                     {/* Definition */}
@@ -552,7 +622,7 @@ export default function VocabularyReviewPage() {
                       <div className="mt-2 w-full border-t border-[var(--border-default)] pt-3">
                         <div className="flex items-start gap-2">
                           <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-gold)]" />
-                          <p className="text-sm italic leading-relaxed text-[var(--text-muted)]">
+                          <p className="text-sm leading-relaxed text-[var(--text-muted)] italic">
                             {currentItem.exampleSentence}
                           </p>
                         </div>
@@ -602,5 +672,23 @@ export default function VocabularyReviewPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+// Wrap with Suspense boundary for useSearchParams()
+export default function VocabularyReviewPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[80vh] items-center justify-center">
+          <div className="text-center">
+            <div className="mx-auto mb-4 h-12 w-12 animate-spin rounded-full border-4 border-[var(--border-default)] border-t-[var(--accent-primary)]" />
+            <p className="text-sm text-[var(--text-secondary)]">Loading review...</p>
+          </div>
+        </div>
+      }
+    >
+      <VocabularyReviewContent />
+    </Suspense>
   );
 }

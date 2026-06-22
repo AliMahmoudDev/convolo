@@ -151,9 +151,7 @@ export default function AdminDashboardPage() {
       {/* Page header */}
       <div>
         <h1 className="text-2xl font-bold text-[var(--text-primary)]">Dashboard</h1>
-        <p className="text-sm text-[var(--text-secondary)]">
-          Platform overview and key metrics
-        </p>
+        <p className="text-sm text-[var(--text-secondary)]">Platform overview and key metrics</p>
       </div>
 
       {/* Stats cards */}
@@ -279,9 +277,7 @@ export default function AdminDashboardPage() {
         </div>
 
         {stats.recentSignups.length === 0 ? (
-          <div className="px-5 py-8 text-center text-sm text-[var(--text-muted)]">
-            No users yet
-          </div>
+          <div className="px-5 py-8 text-center text-sm text-[var(--text-muted)]">No users yet</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -313,9 +309,7 @@ export default function AdminDashboardPage() {
                     <td className="px-5 py-3 text-sm font-medium text-[var(--text-primary)]">
                       {user.name}
                     </td>
-                    <td className="px-5 py-3 text-sm text-[var(--text-secondary)]">
-                      {user.email}
-                    </td>
+                    <td className="px-5 py-3 text-sm text-[var(--text-secondary)]">{user.email}</td>
                     <td className="hidden px-5 py-3 text-sm text-[var(--text-secondary)] sm:table-cell">
                       {user.nativeLanguage}
                       {user.targetLanguage ? ` → ${user.targetLanguage}` : ""}

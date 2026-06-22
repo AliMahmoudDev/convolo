@@ -48,6 +48,8 @@ interface ReviewItem extends VocabItem {
   itemId: string;
   /** Current SRS metadata */
   srs: ReviewMeta;
+  /** Language pair this item belongs to */
+  languagePair?: string;
 }
 
 interface ReviewPayload {
@@ -119,7 +121,10 @@ function isDueForReview(srs: ReviewMeta): boolean {
  * - "good": mastery +1, interval = current * 2
  * - "easy": mastery +2, interval = current * 3
  */
-function calculateNewSrs(current: ReviewMeta, quality: "again" | "hard" | "good" | "easy"): ReviewMeta {
+function calculateNewSrs(
+  current: ReviewMeta,
+  quality: "again" | "hard" | "good" | "easy"
+): ReviewMeta {
   const now = new Date();
   const baseInterval = SRS_BASE_INTERVALS[quality];
   const qualityScore = QUALITY_SCORES[quality];
@@ -175,7 +180,7 @@ function calculateNewSrs(current: ReviewMeta, quality: "again" | "hard" | "good"
 // GET Handler — Fetch review items
 // ═══════════════════════════════════════════
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     // 1. Authenticate
     const user = await getAuthUser();
@@ -186,11 +191,19 @@ export async function GET() {
     // 2. Get or create user's DB record
     const dbUser = await getOrCreateUser(user);
 
-    // 3. Get user's conversation IDs
-    const { data: conversations, error: convError } = await db
-      .from("conversations")
-      .select("id")
-      .eq("userId", dbUser.id);
+    // 3. Parse query params
+    const { searchParams } = new URL(request.url);
+    const languagePair = searchParams.get("languagePair")?.trim() || "";
+
+    // 4. Get user's conversation IDs — filtered by language pair if specified
+    let convQuery = db.from("conversations").select("id").eq("userId", dbUser.id);
+
+    // Filter by language pair if specified
+    if (languagePair) {
+      convQuery = convQuery.eq("languagePair", languagePair);
+    }
+
+    const { data: conversations, error: convError } = await convQuery;
 
     if (convError) {
       console.error("[Review API] Error fetching conversations:", convError);
@@ -258,6 +271,7 @@ export async function GET() {
           exampleSentence: vocabItem.exampleSentence || undefined,
           itemId,
           srs,
+          languagePair: languagePair || undefined,
         });
       }
     }

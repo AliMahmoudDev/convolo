@@ -162,7 +162,7 @@ export default function OnboardingPage() {
   const targetLanguages = SUPPORTED_LANGUAGES.filter((l) => l.code !== nativeLanguage);
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col hero-gradient-light dark:hero-gradient-dark">
+    <div className="hero-gradient-light dark:hero-gradient-dark fixed inset-0 z-50 flex flex-col">
       {/* Header with step indicator */}
       <header className="flex flex-col items-center px-6 pt-8 pb-4">
         {/* Logo */}
@@ -188,9 +188,7 @@ export default function OnboardingPage() {
               {step < 3 && (
                 <div
                   className={`h-0.5 w-8 rounded-full transition-all duration-300 sm:w-12 ${
-                    step < currentStep
-                      ? "bg-[var(--accent-primary)]"
-                      : "bg-[var(--border-default)]"
+                    step < currentStep ? "bg-[var(--accent-primary)]" : "bg-[var(--border-default)]"
                   }`}
                 />
               )}
@@ -244,10 +242,7 @@ export default function OnboardingPage() {
 
             {/* Step 3: Proficiency Level */}
             {currentStep === 3 && (
-              <ProficiencyGrid
-                selected={proficiencyLevel}
-                onSelect={setProficiencyLevel}
-              />
+              <ProficiencyGrid selected={proficiencyLevel} onSelect={setProficiencyLevel} />
             )}
           </div>
         </div>

@@ -20,7 +20,9 @@ export async function GET() {
     }
 
     // Total users
-    const { count: totalUsers } = await db.from("users").select("*", { count: "exact", head: true });
+    const { count: totalUsers } = await db
+      .from("users")
+      .select("*", { count: "exact", head: true });
 
     // Total conversations
     const { count: totalConversations } = await db
@@ -33,9 +35,7 @@ export async function GET() {
       .select("*", { count: "exact", head: true });
 
     // Pro vs Free breakdown
-    const { data: subscriptionBreakdown } = await db
-      .from("subscriptions")
-      .select("plan");
+    const { data: subscriptionBreakdown } = await db.from("subscriptions").select("plan");
 
     const proCount = (subscriptionBreakdown || []).filter(
       (s: any) => s.plan !== "free" && s.plan !== null

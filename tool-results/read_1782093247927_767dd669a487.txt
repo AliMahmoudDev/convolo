@@ -1,0 +1,713 @@
+     1→/**
+     2→ * Dashboard — Main hub for the app.
+     3→ *
+     4→ * Features:
+     5→ * - Personalized greeting with user's name
+     6→ * - Language Card (prominent, like Duolingo) — change BOTH languages here
+     7→ * - Live stats from user profile
+     8→ * - Quick actions
+     9→ * - Recent conversations
+    10→ *
+    11→ * Language switching pattern (like Duolingo/Babbel):
+    12→ * - ALL language changes happen HERE on the Dashboard (Language Card)
+    13→ * - Learn page: Display-only, "Change" link goes to Dashboard
+    14→ * - Chat: Display-only, no switching mid-conversation
+    15→ * - Interface language: Settings only (future feature)
+    16→ */
+    17→
+    18→"use client";
+    19→
+    20→import { useState, useEffect, useCallback, useRef, Suspense } from "react";
+    21→import Link from "next/link";
+    22→import { useRouter, useSearchParams } from "next/navigation";
+    23→import {
+    24→  MessageSquare,
+    25→  BookOpen,
+    26→  Flame,
+    27→  Zap,
+    28→  ArrowRight,
+    29→  Globe,
+    30→  ChevronDown,
+    31→  Check,
+    32→  Crown,
+    33→  Play,
+    34→  Trophy,
+    35→  Loader2,
+    36→  Lock,
+    37→  Sparkles,
+    38→  CheckCircle2,
+    39→} from "lucide-react";
+    40→import { Button } from "@/components/ui/button";
+    41→import { SUPPORTED_LANGUAGES, type ProficiencyLevel } from "@/lib/constants";
+    42→import { useProfileStore, useTargetLanguage, useNativeLanguage } from "@/stores/profile-store";
+    43→
+    44→// ═══════════════════════════════════════════
+    45→// Types
+    46→// ═══════════════════════════════════════════
+    47→
+    48→interface Conversation {
+    49→  id: string;
+    50→  languagePair: string;
+    51→  status: string;
+    52→  messageCount: number;
+    53→  startedAt: string;
+    54→  scenario: { title: string } | null;
+    55→}
+    56→
+    57→interface UserStats {
+    58→  conversations: number;
+    59→  wordsLearned: number;
+    60→  dayStreak: number;
+    61→  xpPoints: number;
+    62→}
+    63→
+    64→interface Achievement {
+    65→  id: string;
+    66→  title: string;
+    67→  description: string;
+    68→  icon: string;
+    69→  unlocked: boolean;
+    70→}
+    71→
+    72→// ═══════════════════════════════════════════
+    73→// Helper
+    74→// ═══════════════════════════════════════════
+    75→
+    76→function getLangInfo(code: string) {
+    77→  return (
+    78→    SUPPORTED_LANGUAGES.find((l) => l.code === code) || {
+    79→      code,
+    80→      name: code,
+    81→      flagEmoji: "🌐",
+    82→      nativeName: code,
+    83→    }
+    84→  );
+    85→}
+    86→
+    87→// ═══════════════════════════════════════════
+    88→// Component
+    89→// ═══════════════════════════════════════════
+    90→
+    91→function DashboardPageContent() {
+    92→  const router = useRouter();
+    93→  const searchParams = useSearchParams();
+    94→  const isUpgraded = searchParams.get("upgraded") === "true";
+    95→
+    96→  // Profile from shared store
+    97→  const profile = useProfileStore((s) => s.profile);
+    98→  const fetchProfile = useProfileStore((s) => s.fetchProfile);
+    99→  const updateProfile = useProfileStore((s) => s.updateProfile);
+   100→  const isProfileInitialized = useProfileStore((s) => s.isInitialized);
+   101→  const targetLang = useTargetLanguage();
+   102→  const nativeLang = useNativeLanguage();
+   103→
+   104→  const [conversations, setConversations] = useState<Conversation[]>([]);
+   105→  const [stats, setStats] = useState<UserStats>({
+   106→    conversations: 0,
+   107→    wordsLearned: 0,
+   108→    dayStreak: 0,
+   109→    xpPoints: 0,
+   110→  });
+   111→  const [achievements, setAchievements] = useState<Achievement[]>([]);
+   112→  const [isPageLoading, setIsPageLoading] = useState(true);
+   113→  const [activePicker, setActivePicker] = useState<"native" | "target" | null>(null);
+   114→  const [isUpdatingLang, setIsUpdatingLang] = useState<string | null>(null);
+   115→
+   116→  // Ref for the picker container — used for click-outside detection
+   117→  const pickerRef = useRef<HTMLDivElement>(null);
+   118→
+   119→  // ─── Close picker when clicking outside ───
+   120→  useEffect(() => {
+   121→    if (!activePicker) return;
+   122→
+   123→    function handleClickOutside(e: MouseEvent) {
+   124→      // If the click is inside the picker container, don't close
+   125→      if (pickerRef.current && pickerRef.current.contains(e.target as Node)) {
+   126→        return;
+   127→      }
+   128→      setActivePicker(null);
+   129→    }
+   130→
+   131→    // Use setTimeout to avoid the same click that opened the picker from closing it
+   132→    const timer = setTimeout(() => {
+   133→      document.addEventListener("mousedown", handleClickOutside);
+   134→    }, 0);
+   135→
+   136→    return () => {
+   137→      clearTimeout(timer);
+   138→      document.removeEventListener("mousedown", handleClickOutside);
+   139→    };
+   140→  }, [activePicker]);
+   141→
+   142→  // ─── Fetch profile + conversations + stats on mount ───
+   143→  useEffect(() => {
+   144→    async function fetchData() {
+   145→      try {
+   146→        const [_, convRes, statsRes, achRes] = await Promise.all([
+   147→          fetchProfile(),
+   148→          fetch("/api/conversations"),
+   149→          fetch("/api/user/stats"),
+   150→          fetch("/api/achievements"),
+   151→        ]);
+   152→
+   153→        const convData = await convRes.json();
+   154→        if (convData.success && convData.data) {
+   155→          setConversations((convData.data.conversations || []).slice(0, 3));
+   156→        }
+   157→
+   158→        const statsData = await statsRes.json();
+   159→        if (statsData.success && statsData.data) {
+   160→          setStats(statsData.data);
+   161→        }
+   162→
+   163→        const achData = await achRes.json();
+   164→        if (achData.success && achData.data?.achievements) {
+   165→          setAchievements(achData.data.achievements);
+   166→        }
+   167→      } catch {
+   168→        // Silently fail
+   169→      } finally {
+   170→        setIsPageLoading(false);
+   171→      }
+   172→    }
+   173→    fetchData();
+   174→  }, [fetchProfile]);
+   175→
+   176→  // ─── Change target language ───
+   177→  const handleTargetLangChange = useCallback(
+   178→    async (newLang: string) => {
+   179→      if (isUpdatingLang) return;
+   180→      setIsUpdatingLang(newLang);
+   181→      setActivePicker(null);
+   182→
+   183→      const result = await updateProfile({ targetLanguage: newLang });
+   184→      if (!result) {
+   185→        console.error("[Dashboard] Failed to update target language");
+   186→      }
+   187→      setIsUpdatingLang(null);
+   188→    },
+   189→    [isUpdatingLang, updateProfile]
+   190→  );
+   191→
+   192→  // ─── Change native language ───
+   193→  const handleNativeLangChange = useCallback(
+   194→    async (newLang: string) => {
+   195→      if (isUpdatingLang) return;
+   196→      setIsUpdatingLang(newLang);
+   197→      setActivePicker(null);
+   198→
+   199→      const result = await updateProfile({ nativeLanguage: newLang });
+   200→      if (!result) {
+   201→        console.error("[Dashboard] Failed to update native language");
+   202→      }
+   203→      setIsUpdatingLang(null);
+   204→    },
+   205→    [isUpdatingLang, updateProfile]
+   206→  );
+   207→
+   208→  // ─── Loading state ───
+   209→  if (!isProfileInitialized || isPageLoading) {
+   210→    return (
+   211→      <div className="flex min-h-[50vh] items-center justify-center">
+   212→        <Loader2 className="h-8 w-8 animate-spin text-[var(--accent-primary)]" />
+   213→      </div>
+   214→    );
+   215→  }
+   216→
+   217→  const level = profile?.proficiencyLevel || "beginner";
+   218→  const firstName = profile?.name?.split(" ")[0] || "there";
+   219→
+   220→  return (
+   221→    <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+   222→      {/* Greeting */}
+   223→      <div className="mb-8">
+   224→        <h1
+   225→          className="mb-1 text-2xl font-bold text-[var(--text-primary)] sm:text-3xl"
+   226→          style={{ fontFamily: "var(--font-heading-cfg)" }}
+   227→        >
+   228→          Welcome back, {firstName} 👋
+   229→        </h1>
+   230→        <p className="text-[var(--text-secondary)]">Ready to practice {targetLang.name} today?</p>
+   231→      </div>
+   232→
+   233→      {/* ═══ Language Card (Duolingo-style) ═══ */}
+   234→      <div className="mb-8">
+   235→        <div className="overflow-hidden rounded-2xl border border-[var(--border-default)] bg-gradient-to-br from-[var(--bg-surface)] to-[var(--accent-light)]/30">
+   236→          {/* Main language display — stacks on mobile, row on desktop */}
+   237→          <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:gap-4 sm:p-6">
+   238→            {/* Top row on mobile: flag + info */}
+   239→            <div className="flex items-center gap-4">
+   240→              {/* Big flag emoji — like Duolingo's course icon */}
+   241→              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-[var(--accent-light)] text-3xl shadow-sm sm:h-24 sm:w-24 sm:text-5xl">
+   242→                {targetLang.flagEmoji}
+   243→              </div>
+   244→
+   245→              {/* Language info + pickers (wrapped in ref for click-outside) */}
+   246→              <div className="min-w-0 flex-1" ref={pickerRef}>
+   247→                <p className="text-xs font-medium tracking-wider text-[var(--text-muted)] uppercase">
+   248→                  I&apos;m learning
+   249→                </p>
+   250→                <h2
+   251→                  className="text-xl font-bold text-[var(--text-primary)] sm:text-3xl"
+   252→                  style={{ fontFamily: "var(--font-heading-cfg)" }}
+   253→                >
+   254→                  {targetLang.name}
+   255→                </h2>
+   256→                <p className="mt-0.5 text-sm text-[var(--text-secondary)]">{targetLang.nativeName}</p>
+   257→                <div className="mt-2 flex flex-wrap items-center gap-1.5 sm:gap-2">
+   258→                  {/* Native language — clickable to change */}
+   259→                  <button
+   260→                    onClick={(e) => {
+   261→                      e.stopPropagation();
+   262→                      setActivePicker(activePicker === "native" ? null : "native");
+   263→                    }}
+   264→                    className="inline-flex items-center gap-1 rounded-full bg-[var(--bg-elevated)] px-2 py-1 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--accent-light)] hover:text-[var(--accent-primary)] sm:px-2.5 sm:py-1"
+   265→                  >
+   266→                    {nativeLang.flagEmoji} {nativeLang.name}
+   267→                    <ChevronDown
+   268→                      className={`h-3 w-3 transition-transform ${activePicker === "native" ? "rotate-180" : ""}`}
+   269→                    />
+   270→                  </button>
+   271→                  <span className="text-[var(--text-muted)]">→</span>
+   272→                  {/* Target language — clickable to change */}
+   273→                  <button
+   274→                    onClick={(e) => {
+   275→                      e.stopPropagation();
+   276→                      setActivePicker(activePicker === "target" ? null : "target");
+   277→                    }}
+   278→                    className="inline-flex items-center gap-1 rounded-full bg-[var(--accent-light)] px-2 py-1 text-xs font-medium text-[var(--accent-primary)] transition-colors hover:bg-[var(--accent-primary)] hover:text-white sm:px-2.5 sm:py-1"
+   279→                  >
+   280→                    {targetLang.flagEmoji} {targetLang.name}
+   281→                    <ChevronDown
+   282→                      className={`h-3 w-3 transition-transform ${activePicker === "target" ? "rotate-180" : ""}`}
+   283→                    />
+   284→                  </button>
+   285→                  <span className="inline-flex items-center rounded-full bg-[var(--bg-elevated)] px-2 py-1 text-xs text-[var(--text-secondary)] capitalize sm:px-2.5 sm:py-1">
+   286→                    {level}
+   287→                  </span>
+   288→                  {profile?.isPro && (
+   289→                    <span className="inline-flex items-center gap-0.5 rounded-full bg-[var(--color-gold-light)] px-2 py-1 text-xs font-medium text-[var(--color-gold)] sm:px-2.5 sm:py-1">
+   290→                      <Crown className="h-3 w-3" /> Pro
+   291→                    </span>
+   292→                  )}
+   293→                </div>
+   294→
+   295→                {/* ═══ Native language picker ═══ */}
+   296→                {activePicker === "native" && (
+   297→                  <div className="relative z-50 mt-3 w-full max-w-72 rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-2 shadow-[var(--shadow-lg)]">
+   298→                    <p className="mb-2 px-3 text-[10px] font-medium tracking-wider text-[var(--text-muted)] uppercase">
+   299→                      I speak (native language)
+   300→                    </p>
+   301→                    <div className="max-h-64 overflow-y-auto">
+   302→                      {SUPPORTED_LANGUAGES.filter(
+   303→                        (l) => l.code !== (profile?.targetLanguage || "ar")
+   304→                      ).map((lang) => (
+   305→                        <button
+   306→                          key={lang.code}
+   307→                          onClick={(e) => {
+   308→                            e.stopPropagation();
+   309→                            handleNativeLangChange(lang.code);
+   310→                          }}
+   311→                          disabled={!!isUpdatingLang}
+   312→                          className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors hover:bg-[var(--bg-elevated)] disabled:opacity-50 ${
+   313→                            lang.code === profile?.nativeLanguage
+   314→                              ? "bg-[var(--accent-light)] text-[var(--accent-primary)]"
+   315→                              : "text-[var(--text-primary)]"
+   316→                          }`}
+   317→                        >
+   318→                          <span className="text-xl">{lang.flagEmoji}</span>
+   319→                          <div className="min-w-0 flex-1 text-left">
+   320→                            <span className="font-medium">{lang.name}</span>
+   321→                            <span className="ml-1.5 text-xs text-[var(--text-muted)]">
+   322→                              {lang.nativeName}
+   323→                            </span>
+   324→                          </div>
+   325→                          {isUpdatingLang === lang.code && (
+   326→                            <Loader2 className="h-4 w-4 animate-spin" />
+   327→                          )}
+   328→                          {lang.code === profile?.nativeLanguage && isUpdatingLang !== lang.code && (
+   329→                            <Check className="h-4 w-4" />
+   330→                          )}
+   331→                        </button>
+   332→                      ))}
+   333→                    </div>
+   334→                  </div>
+   335→                )}
+   336→
+   337→                {/* ═══ Target language picker ═══ */}
+   338→                {activePicker === "target" && (
+   339→                  <div className="relative z-50 mt-3 w-full max-w-72 rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-2 shadow-[var(--shadow-lg)]">
+   340→                    <p className="mb-2 px-3 text-[10px] font-medium tracking-wider text-[var(--text-muted)] uppercase">
+   341→                      I want to learn (target language)
+   342→                    </p>
+   343→                    <div className="max-h-64 overflow-y-auto">
+   344→                      {SUPPORTED_LANGUAGES.filter(
+   345→                        (l) => l.code !== (profile?.nativeLanguage || "en")
+   346→                      ).map((lang) => (
+   347→                        <button
+   348→                          key={lang.code}
+   349→                          onClick={(e) => {
+   350→                            e.stopPropagation();
+   351→                            handleTargetLangChange(lang.code);
+   352→                          }}
+   353→                          disabled={!!isUpdatingLang}
+   354→                          className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors hover:bg-[var(--bg-elevated)] disabled:opacity-50 ${
+   355→                            lang.code === profile?.targetLanguage
+   356→                              ? "bg-[var(--accent-light)] text-[var(--accent-primary)]"
+   357→                              : "text-[var(--text-primary)]"
+   358→                          }`}
+   359→                        >
+   360→                          <span className="text-xl">{lang.flagEmoji}</span>
+   361→                          <div className="min-w-0 flex-1 text-left">
+   362→                            <span className="font-medium">{lang.name}</span>
+   363→                            <span className="ml-1.5 text-xs text-[var(--text-muted)]">
+   364→                              {lang.nativeName}
+   365→                            </span>
+   366→                          </div>
+   367→                          {isUpdatingLang === lang.code && (
+   368→                            <Loader2 className="h-4 w-4 animate-spin" />
+   369→                          )}
+   370→                          {lang.code === profile?.targetLanguage && isUpdatingLang !== lang.code && (
+   371→                            <Check className="h-4 w-4" />
+   372→                          )}
+   373→                        </button>
+   374→                      ))}
+   375→                    </div>
+   376→                  </div>
+   377→                )}
+   378→              </div>
+   379→            </div>
+   380→
+   381→            {/* Change language button — full width on mobile, inline on desktop */}
+   382→            <div className="sm:shrink-0">
+   383→              <button
+   384→                onClick={(e) => {
+   385→                  e.stopPropagation();
+   386→                  setActivePicker(activePicker === "target" ? null : "target");
+   387→                }}
+   388→                disabled={!!isUpdatingLang}
+   389→                className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-[var(--accent-primary)] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-[var(--accent-hover)] hover:shadow-md disabled:opacity-50 sm:w-auto"
+   390→              >
+   391→                {isUpdatingLang ? (
+   392→                  <Loader2 className="h-4 w-4 animate-spin" />
+   393→                ) : (
+   394→                  <Globe className="h-4 w-4" />
+   395→                )}
+   396→                Change
+   397→                <ChevronDown
+   398→                  className={`h-3.5 w-3.5 transition-transform ${activePicker === "target" ? "rotate-180" : ""}`}
+   399→                />
+   400→              </button>
+   401→            </div>
+   402→          </div>
+   403→
+   404→          {/* Quick start bar */}
+   405→          <div className="border-t border-[var(--border-default)]/50 bg-[var(--bg-surface)]/50 px-5 py-3 sm:px-6">
+   406→            <Link
+   407→              href="/learn"
+   408→              className="flex items-center justify-between rounded-xl bg-[var(--accent-primary)] px-4 py-2.5 text-sm font-semibold text-white transition-all hover:bg-[var(--accent-hover)] hover:shadow-md"
+   409→            >
+   410→              <span className="flex items-center gap-2">
+   411→                <Play className="h-4 w-4" />
+   412→                Start {targetLang.name} Practice
+   413→              </span>
+   414→              <ArrowRight className="h-4 w-4" />
+   415→            </Link>
+   416→          </div>
+   417→        </div>
+   418→      </div>
+   419→
+   420→      {/* ═══ Upgrade Success Banner ═══ */}
+   421→      {isUpgraded && (
+   422→        <div className="mb-8 rounded-2xl border border-[var(--state-success)]/20 bg-[var(--state-success-light)] p-4">
+   423→          <div className="flex items-center gap-3">
+   424→            <CheckCircle2 className="h-6 w-6 shrink-0 text-[var(--state-success)]" />
+   425→            <div>
+   426→              <p className="text-sm font-semibold text-[var(--state-success)]">
+   427→                Welcome to Pro! 🎉
+   428→              </p>
+   429→              <p className="text-xs text-[var(--state-success)]/80">
+   430→                Your subscription is now active. Enjoy unlimited conversations and all premium features!
+   431→              </p>
+   432→            </div>
+   433→          </div>
+   434→        </div>
+   435→      )}
+   436→
+   437→      {/* ═══ Upgrade CTA Banner (Free users) ═══ */}
+   438→      {!profile?.isPro && (
+   439→        <div className="mb-8">
+   440→          <Link
+   441→            href="/pricing"
+   442→            className="gradient-conbolo group flex items-center justify-between rounded-2xl p-5 text-white transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg"
+   443→          >
+   444→            <div className="flex items-center gap-4">
+   445→              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/20">
+   446→                <Crown className="h-6 w-6" />
+   447→              </div>
+   448→              <div>
+   449→                <h3
+   450→                  className="font-semibold"
+   451→                  style={{ fontFamily: "var(--font-heading-cfg)" }}
+   452→                >
+   453→                  Upgrade to Pro
+   454→                </h3>
+   455→                <p className="text-sm text-white/80">
+   456→                  Unlimited conversations, premium scenarios & more
+   457→                </p>
+   458→              </div>
+   459→            </div>
+   460→            <div className="flex items-center gap-2 rounded-xl bg-white/20 px-4 py-2 text-sm font-semibold transition-colors hover:bg-white/30">
+   461→              <Sparkles className="h-4 w-4" />
+   462→              Upgrade Now
+   463→              <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+   464→            </div>
+   465→          </Link>
+   466→        </div>
+   467→      )}
+   468→
+   469→      {/* ═══ Stats Grid ═══ */}
+   470→      <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
+   471→        {[
+   472→          {
+   473→            label: "Conversations",
+   474→            value: String(stats.conversations),
+   475→            icon: MessageSquare,
+   476→            color: "text-[var(--accent-primary)]",
+   477→            bg: "bg-[var(--accent-light)]",
+   478→          },
+   479→          {
+   480→            label: "Words Learned",
+   481→            value: String(stats.wordsLearned),
+   482→            icon: BookOpen,
+   483→            color: "text-[var(--state-success)]",
+   484→            bg: "bg-green-50 dark:bg-green-900/20",
+   485→          },
+   486→          {
+   487→            label: "Day Streak",
+   488→            value: String(stats.dayStreak),
+   489→            icon: Flame,
+   490→            color: "text-[var(--color-gold)]",
+   491→            bg: "bg-[var(--color-gold-light)]",
+   492→          },
+   493→          {
+   494→            label: "XP Points",
+   495→            value: String(stats.xpPoints),
+   496→            icon: Zap,
+   497→            color: "text-purple-500",
+   498→            bg: "bg-purple-50 dark:bg-purple-900/20",
+   499→          },
+   500→        ].map((stat) => (
+   501→          <div
+   502→            key={stat.label}
+   503→            className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-4 sm:p-5"
+   504→          >
+   505→            <div className="mb-3 flex items-center gap-3">
+   506→              <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${stat.bg}`}>
+   507→                <stat.icon className={`h-4.5 w-4.5 ${stat.color}`} />
+   508→              </div>
+   509→            </div>
+   510→            <p
+   511→              className="mb-0.5 text-2xl font-bold text-[var(--text-primary)] sm:text-3xl"
+   512→              style={{ fontFamily: "var(--font-heading-cfg)" }}
+   513→            >
+   514→              {stat.value}
+   515→            </p>
+   516→            <p className="text-xs text-[var(--text-muted)] sm:text-sm">{stat.label}</p>
+   517→          </div>
+   518→        ))}
+   519→      </div>
+   520→
+   521→      {/* ═══ Quick Actions ═══ */}
+   522→      <div className="mb-8">
+   523→        <h2
+   524→          className="mb-4 text-lg font-semibold text-[var(--text-primary)]"
+   525→          style={{ fontFamily: "var(--font-heading-cfg)" }}
+   526→        >
+   527→          Quick Start
+   528→        </h2>
+   529→        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+   530→          <Link
+   531→            href="/learn"
+   532→            className="gradient-conbolo group relative rounded-2xl border-0 p-5 text-white transition-all duration-300 hover:-translate-y-0.5"
+   533→          >
+   534→            <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-white/20">
+   535→              <MessageSquare className="h-5 w-5" />
+   536→            </div>
+   537→            <h3 className="mb-1 font-semibold" style={{ fontFamily: "var(--font-heading-cfg)" }}>
+   538→              Free Chat
+   539→            </h3>
+   540→            <p className="text-sm text-white/70">Practice casual conversation on any topic</p>
+   541→            <ArrowRight className="absolute top-5 right-5 h-4 w-4 text-white/60 transition-transform group-hover:translate-x-1" />
+   542→          </Link>
+   543→
+   544→          <Link
+   545→            href="/learn"
+   546→            className="group rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5 transition-all duration-300 hover:-translate-y-0.5 hover:border-[var(--accent-primary)]/30"
+   547→          >
+   548→            <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--accent-light)]">
+   549→              <Globe className="h-5 w-5 text-[var(--accent-primary)]" />
+   550→            </div>
+   551→            <h3
+   552→              className="mb-1 font-semibold text-[var(--text-primary)]"
+   553→              style={{ fontFamily: "var(--font-heading-cfg)" }}
+   554→            >
+   555→              {targetLang.name} Practice
+   556→            </h3>
+   557→            <p className="text-sm text-[var(--text-secondary)]">
+   558→              Start a lesson in {targetLang.name}
+   559→            </p>
+   560→            <ArrowRight className="absolute top-5 right-5 h-4 w-4 text-[var(--text-muted)] transition-transform group-hover:translate-x-1" />
+   561→          </Link>
+   562→
+   563→          <Link
+   564→            href="/vocabulary"
+   565→            className="group rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5 transition-all duration-300 hover:-translate-y-0.5 hover:border-[var(--accent-primary)]/30"
+   566→          >
+   567→            <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-green-50 dark:bg-green-900/20">
+   568→              <BookOpen className="h-5 w-5 text-[var(--state-success)]" />
+   569→            </div>
+   570→            <h3
+   571→              className="mb-1 font-semibold text-[var(--text-primary)]"
+   572→              style={{ fontFamily: "var(--font-heading-cfg)" }}
+   573→            >
+   574→              Review Words
+   575→            </h3>
+   576→            <p className="text-sm text-[var(--text-secondary)]">
+   577→              Practice vocabulary with spaced repetition
+   578→            </p>
+   579→            <ArrowRight className="absolute top-5 right-5 h-4 w-4 text-[var(--text-muted)] transition-transform group-hover:translate-x-1" />
+   580→          </Link>
+   581→        </div>
+   582→      </div>
+   583→
+   584→      {/* ═══ Recent Conversations ═══ */}
+   585→      {conversations.length > 0 && (
+   586→        <div className="mb-8">
+   587→          <div className="mb-4 flex items-center justify-between">
+   588→            <h2
+   589→              className="text-lg font-semibold text-[var(--text-primary)]"
+   590→              style={{ fontFamily: "var(--font-heading-cfg)" }}
+   591→            >
+   592→              Recent Conversations
+   593→            </h2>
+   594→            <Link
+   595→              href="/learn"
+   596→              className="text-sm font-medium text-[var(--accent-primary)] hover:text-[var(--accent-hover)]"
+   597→            >
+   598→              View all
+   599→            </Link>
+   600→          </div>
+   601→          <div className="space-y-3">
+   602→            {conversations.map((conv) => {
+   603→              const [, tCode] = conv.languagePair.split("-");
+   604→              const tLang = getLangInfo(tCode);
+   605→              return (
+   606→                <Link
+   607→                  key={conv.id}
+   608→                  href={`/learn/${conv.id}`}
+   609→                  className="flex items-center gap-3 rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-4 transition-colors hover:border-[var(--accent-primary)]/30"
+   610→                >
+   611→                  <span className="text-xl">{tLang.flagEmoji}</span>
+   612→                  <div className="min-w-0 flex-1">
+   613→                    <p className="truncate text-sm font-medium text-[var(--text-primary)]">
+   614→                      {conv.scenario?.title || `${tLang.name} Conversation`}
+   615→                    </p>
+   616→                    <p className="text-xs text-[var(--text-muted)]">
+   617→                      {conv.messageCount} messages · {new Date(conv.startedAt).toLocaleDateString()}
+   618→                    </p>
+   619→                  </div>
+   620→                  <ArrowRight className="h-4 w-4 text-[var(--text-muted)]" />
+   621→                </Link>
+   622→              );
+   623→            })}
+   624→          </div>
+   625→        </div>
+   626→      )}
+   627→
+   628→      {/* ═══ Achievements ═══ */}
+   629→      <div>
+   630→        <div className="mb-4 flex items-center justify-between">
+   631→          <h2
+   632→            className="text-lg font-semibold text-[var(--text-primary)]"
+   633→            style={{ fontFamily: "var(--font-heading-cfg)" }}
+   634→          >
+   635→            Achievements
+   636→          </h2>
+   637→          <Link
+   638→            href="/progress"
+   639→            className="text-sm font-medium text-[var(--accent-primary)] hover:text-[var(--accent-hover)]"
+   640→          >
+   641→            View all
+   642→          </Link>
+   643→        </div>
+   644→
+   645→        {achievements.length === 0 ? (
+   646→          /* Empty state — still loading or no data */
+   647→          <div className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-6 text-center">
+   648→            <Trophy className="mx-auto mb-3 h-10 w-10 text-[var(--text-muted)]" />
+   649→            <h3
+   650→              className="mb-1 text-sm font-semibold text-[var(--text-primary)]"
+   651→              style={{ fontFamily: "var(--font-heading-cfg)" }}
+   652→            >
+   653→              No achievements yet
+   654→            </h3>
+   655→            <p className="text-xs text-[var(--text-muted)]">
+   656→              Start your first conversation to unlock your first achievement!
+   657→            </p>
+   658→          </div>
+   659→        ) : (
+   660→          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+   661→            {achievements.map((ach) => (
+   662→              <div
+   663→                key={ach.id}
+   664→                className={`group rounded-2xl border p-4 text-center transition-all duration-300 hover:-translate-y-0.5 ${
+   665→                  ach.unlocked
+   666→                    ? "border-[var(--color-gold)]/30 bg-gradient-to-br from-[var(--color-gold-light)]/50 to-[var(--bg-surface)] hover:border-[var(--color-gold)]/50 hover:shadow-[var(--shadow-md)]"
+   667→                    : "border-[var(--border-default)] bg-[var(--bg-surface)] opacity-60 hover:opacity-80"
+   668→                }`}
+   669→              >
+   670→                <div className="mb-2 text-3xl">
+   671→                  {ach.unlocked ? (
+   672→                    ach.icon
+   673→                  ) : (
+   674→                    <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-[var(--bg-elevated)]">
+   675→                      <Lock className="h-4 w-4 text-[var(--text-muted)]" />
+   676→                    </div>
+   677→                  )}
+   678→                </div>
+   679→                <h3
+   680→                  className={`mb-0.5 text-xs font-semibold leading-tight ${
+   681→                    ach.unlocked ? "text-[var(--text-primary)]" : "text-[var(--text-muted)]"
+   682→                  }`}
+   683→                  style={{ fontFamily: "var(--font-heading-cfg)" }}
+   684→                >
+   685→                  {ach.title}
+   686→                </h3>
+   687→                <p className="text-[10px] leading-snug text-[var(--text-secondary)]">
+   688→                  {ach.description}
+   689→                </p>
+   690→              </div>
+   691→            ))}
+   692→          </div>
+   693→        )}
+   694→      </div>
+   695→    </div>
+   696→  );
+   697→}
+   698→
+   699→// Wrap with Suspense for useSearchParams() compatibility
+   700→export default function DashboardPage() {
+   701→  return (
+   702→    <Suspense
+   703→      fallback={
+   704→        <div className="flex min-h-[50vh] items-center justify-center">
+   705→          <Loader2 className="h-8 w-8 animate-spin text-[var(--accent-primary)]" />
+   706→        </div>
+   707→      }
+   708→    >
+   709→      <DashboardPageContent />
+   710→    </Suspense>
+   711→  );
+   712→}
+   713→

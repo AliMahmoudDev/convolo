@@ -2,14 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  LayoutDashboard,
-  Users,
-  BookOpen,
-  ArrowLeft,
-  Shield,
-  LogOut,
-} from "lucide-react";
+import { LayoutDashboard, Users, BookOpen, ArrowLeft, Shield, LogOut } from "lucide-react";
 import { useAuthStore, useUserDisplayName, useUserInitial } from "@/stores/auth-store";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -138,12 +131,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             onClick={() => setSidebarOpen(true)}
             className="rounded-lg p-2 text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] lg:hidden"
           >
-            <svg
-              className="h-5 w-5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -156,9 +144,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <div className="flex-1" />
 
           <div className="flex items-center gap-2">
-            <span className="hidden text-xs text-[var(--text-muted)] sm:inline">
-              {user?.email}
-            </span>
+            <span className="hidden text-xs text-[var(--text-muted)] sm:inline">{user?.email}</span>
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--accent-primary)] text-xs font-semibold text-white">
               {displayInitial}
             </div>

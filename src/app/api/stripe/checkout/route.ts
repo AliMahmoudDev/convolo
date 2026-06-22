@@ -37,7 +37,11 @@ export async function POST(request: Request) {
 
     // Already a Pro subscriber? No need to create another checkout
     if (dbUser.subscription?.plan !== "free" && dbUser.subscription?.status === "active") {
-      return errorResponse("ALREADY_SUBSCRIBED", "You already have an active Pro subscription", 400);
+      return errorResponse(
+        "ALREADY_SUBSCRIBED",
+        "You already have an active Pro subscription",
+        400
+      );
     }
 
     // 3. Fetch or create the subscription record to get the Stripe customer ID
@@ -111,6 +115,10 @@ export async function POST(request: Request) {
     return successResponse({ url: checkoutSession.url });
   } catch (error) {
     console.error("[Stripe Checkout] Error:", error);
-    return errorResponse("INTERNAL_ERROR", "Failed to create checkout session. Please try again.", 500);
+    return errorResponse(
+      "INTERNAL_ERROR",
+      "Failed to create checkout session. Please try again.",
+      500
+    );
   }
 }

@@ -41,7 +41,11 @@ export async function POST(request: Request) {
       .maybeSingle();
 
     if (!subscription?.stripeCustomerId || subscription.stripeCustomerId.startsWith("free_")) {
-      return errorResponse("NO_SUBSCRIPTION", "No Stripe customer found. Please subscribe first.", 400);
+      return errorResponse(
+        "NO_SUBSCRIPTION",
+        "No Stripe customer found. Please subscribe first.",
+        400
+      );
     }
 
     // 4. Determine the origin for return URL
@@ -56,6 +60,10 @@ export async function POST(request: Request) {
     return successResponse({ url: portalSession.url });
   } catch (error) {
     console.error("[Stripe Portal] Error:", error);
-    return errorResponse("INTERNAL_ERROR", "Failed to create portal session. Please try again.", 500);
+    return errorResponse(
+      "INTERNAL_ERROR",
+      "Failed to create portal session. Please try again.",
+      500
+    );
   }
 }
