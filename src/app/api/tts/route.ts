@@ -127,14 +127,23 @@ export async function GET(req: NextRequest) {
         stream: false,
       });
     } catch (ttsError: any) {
-      console.error("[TTS API] TTS create failed:", ttsError?.message);
+      console.error("[TTS API] TTS create failed:", ttsError?.message, ttsError?.cause);
       return NextResponse.json(
         {
           error: "TTS generation failed",
           detail: ttsError?.message || String(ttsError),
+          cause: ttsError?.cause ? String(ttsError.cause) : undefined,
+          code: ttsError?.code || undefined,
           step: "tts_create",
           voice,
           text: text.slice(0, 50),
+          configDebug: {
+            hasBaseUrl: !!process.env.ZAI_BASE_URL,
+            hasApiKey: !!process.env.ZAI_API_KEY,
+            hasChatId: !!process.env.ZAI_CHAT_ID,
+            hasToken: !!process.env.ZAI_TOKEN,
+            hasUserId: !!process.env.ZAI_USER_ID,
+          },
         },
         { status: 500 }
       );
