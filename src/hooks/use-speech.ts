@@ -8,15 +8,12 @@
  * - Each hook instance gets its own isSpeaking state
  * - Cancel on unmount to prevent ghost audio
  *
- * Voice Loading Strategy:
- * ──────────────────────
- * 1. On first import, trigger voice loading via getVoices()
- * 2. Listen for voiceschanged event to populate cache
- * 3. Once loaded, all subsequent speak() calls are instant
- * 4. If voices not loaded yet, speak with lang tag only (browser default)
- *
- * This is the production-safe approach — no queues, no race conditions,
- * no memory leaks from pending refs.
+ * Chrome Bug Workarounds:
+ * ───────────────────────
+ * - Chrome pauses speechSynthesis after cancel() → call resume() after cancel
+ * - Chrome loses utterance events after rapid cancel/speak → add micro-delay
+ * - Chrome stops speaking after ~15s → resume() timer workaround
+ * - getVoices() returns [] on first call → global cache with voiceschanged listener
  */
 
 "use client";
@@ -31,15 +28,11 @@ let cachedVoices: SpeechSynthesisVoice[] = [];
 let voicesLoaded = false;
 let voicesLoadInitiated = false;
 
-/**
- * Initialize voice loading. Call once on app mount.
- * This triggers the browser to start loading voices.
- */
 function initVoiceLoading() {
   if (typeof window === "undefined" || !window.speechSynthesis || voicesLoadInitiated) return;
   voicesLoadInitiated = true;
 
-  // Try to get voices synchronously (some browsers have them immediately)
+  // Try synchronous (some browsers have voices immediately)
   const voices = window.speechSynthesis.getVoices();
   if (voices.length > 0) {
     cachedVoices = voices;
@@ -47,7 +40,7 @@ function initVoiceLoading() {
     return;
   }
 
-  // Voices load async — wait for the event
+  // Wait for async load
   const handleVoicesChanged = () => {
     cachedVoices = window.speechSynthesis.getVoices();
     if (cachedVoices.length > 0) {
@@ -59,9 +52,8 @@ function initVoiceLoading() {
   window.speechSynthesis.addEventListener("voiceschanged", handleVoicesChanged);
 }
 
-// Auto-init on module load (runs once)
+// Auto-init on module load (non-blocking)
 if (typeof window !== "undefined") {
-  // Use requestIdleCallback for non-blocking init, fallback to setTimeout
   if ("requestIdleCallback" in window) {
     (window as any).requestIdleCallback(() => initVoiceLoading());
   } else {
@@ -101,15 +93,9 @@ function scoreVoice(voice: SpeechSynthesisVoice, langCode: string): number {
   const targetTag = getSpeechLang(langCode);
   const voiceLang = voice.lang;
 
-  // Exact BCP 47 match: "ar-SA" === "ar-SA"
   if (voiceLang === targetTag) return 100;
-
-  // Same language, different region: "ar-EG" starts with "ar-"
   if (voiceLang.startsWith(langCode + "-")) return 80;
-
-  // Loose partial match (rare but possible)
   if (voiceLang.startsWith(langCode)) return 60;
-
   return 0;
 }
 
@@ -125,7 +111,6 @@ function findBestVoice(langCode: string): SpeechSynthesisVoice | null {
       bestScore = score;
       bestVoice = voice;
     } else if (score === bestScore && bestVoice && score > 0) {
-      // Prefer cloud/network voices — they sound much better
       if (!voice.localService && bestVoice.localService) {
         bestVoice = voice;
       }
@@ -135,19 +120,36 @@ function findBestVoice(langCode: string): SpeechSynthesisVoice | null {
   return bestVoice;
 }
 
+/**
+ * Cancel speech and fix Chrome's paused state.
+ * Chrome bug: after cancel(), the synth engine stays paused.
+ * Calling resume() unblocks it for the next speak() call.
+ */
+function cancelAndResume() {
+  if (typeof window === "undefined" || !window.speechSynthesis) return;
+  window.speechSynthesis.cancel();
+  // Chrome fix: cancel() pauses the engine — resume() unblocks it
+  window.speechSynthesis.resume();
+}
+
 // ═══════════════════════════════════════════
 // Hook
 // ═══════════════════════════════════════════
 
 export function useSpeech() {
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const resumeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Cancel on unmount
   useEffect(() => {
     return () => {
       if (typeof window !== "undefined" && window.speechSynthesis) {
-        window.speechSynthesis.cancel();
+        cancelAndResume();
         setIsSpeaking(false);
+      }
+      // Clear Chrome long-speech timer
+      if (resumeTimerRef.current) {
+        clearInterval(resumeTimerRef.current);
       }
     };
   }, []);
@@ -155,8 +157,8 @@ export function useSpeech() {
   const speak = useCallback((text: string, langCode: string = "en") => {
     if (typeof window === "undefined" || !window.speechSynthesis) return;
 
-    // Cancel any ongoing speech from this hook
-    window.speechSynthesis.cancel();
+    // Cancel any ongoing speech + fix Chrome paused state
+    cancelAndResume();
 
     // Try to refresh voice cache if not loaded yet
     if (!voicesLoaded) {
@@ -173,23 +175,52 @@ export function useSpeech() {
     utterance.pitch = 1;
     utterance.volume = 1;
 
-    // Set voice from cache (instant — no async waiting)
+    // Set voice from cache
     const voice = findBestVoice(langCode);
     if (voice) {
       utterance.voice = voice;
     }
 
-    utterance.onstart = () => setIsSpeaking(true);
-    utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = () => setIsSpeaking(false);
+    utterance.onstart = () => {
+      setIsSpeaking(true);
+      // Chrome bug workaround: speech pauses after ~15 seconds
+      // Periodically call resume() to keep it going
+      if (resumeTimerRef.current) clearInterval(resumeTimerRef.current);
+      resumeTimerRef.current = setInterval(() => {
+        if (window.speechSynthesis && window.speechSynthesis.speaking) {
+          window.speechSynthesis.resume();
+        } else {
+          if (resumeTimerRef.current) clearInterval(resumeTimerRef.current);
+        }
+      }, 10000); // Every 10 seconds
+    };
 
-    window.speechSynthesis.speak(utterance);
+    utterance.onend = () => {
+      setIsSpeaking(false);
+      if (resumeTimerRef.current) clearInterval(resumeTimerRef.current);
+    };
+
+    utterance.onerror = (event) => {
+      // Don't log "canceled" errors — that's intentional
+      if (event.error !== "canceled") {
+        console.warn("[useSpeech] Speech error:", event.error);
+      }
+      setIsSpeaking(false);
+      if (resumeTimerRef.current) clearInterval(resumeTimerRef.current);
+    };
+
+    // Chrome bug workaround: small delay after cancel() before speak()
+    // Without this, Chrome sometimes silently drops the utterance
+    setTimeout(() => {
+      window.speechSynthesis.speak(utterance);
+    }, 50);
   }, []);
 
   const stop = useCallback(() => {
     if (typeof window !== "undefined" && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
+      cancelAndResume();
       setIsSpeaking(false);
+      if (resumeTimerRef.current) clearInterval(resumeTimerRef.current);
     }
   }, []);
 
