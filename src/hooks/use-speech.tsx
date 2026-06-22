@@ -5,15 +5,16 @@
  * ────────────
  * - SpeechProvider: loads voices ONCE at app root, shares via context
  * - useSpeech(): consumes context, each instance has own isSpeaking state
- * - No setTimeout hacks — Chrome bug handled with resume() before every speak()
- * - No arbitrary intervals — 15s timer only for long text (>100 chars)
- * - Proper cleanup on unmount
+ * - Optimistic UI: isSpeaking goes true immediately on click
+ * - Safety timeout: resets isSpeaking if onstart never fires (silent failure)
+ * - Double-RAF Chrome fix with cancel guard
  *
  * Chrome SpeechSynthesis Bugs Handled:
  * ────────────────────────────────────
- * 1. cancel() pauses engine → resume() before every speak()
+ * 1. cancel() pauses engine → double-RAF + resume() before every speak()
  * 2. Long speech pauses after ~15s → resume timer for long text only
  * 3. getVoices() returns [] initially → context waits for voiceschanged
+ * 4. Silent failure after cancel/language change → optimistic UI + safety timeout
  */
 
 "use client";
@@ -146,37 +147,76 @@ export function SpeechProvider({ children }: { children: ReactNode }) {
 // Hook — use in any component
 // ═══════════════════════════════════════════
 
+/** Time to wait for onstart before assuming silent failure */
+const SAFETY_TIMEOUT_MS = 2000;
+/** Chrome 15s pause bug threshold */
+const LONG_TEXT_THRESHOLD = 100;
+
 export function useSpeech() {
   const { findVoice, voicesReady } = useContext(SpeechContext);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const resumeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const safetyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Incremented every time speak() is called; RAF callbacks check this
+  // to detect if the speech was cancelled while they were queued
+  const speakGenerationRef = useRef(0);
+  const startFiredRef = useRef(false);
 
   // Clean up on unmount
   useEffect(() => {
     return () => {
       if (typeof window !== "undefined" && window.speechSynthesis) {
         window.speechSynthesis.cancel();
-        window.speechSynthesis.resume();
       }
       if (resumeTimerRef.current) clearInterval(resumeTimerRef.current);
+      if (safetyTimerRef.current) clearTimeout(safetyTimerRef.current);
     };
+  }, []);
+
+  const clearTimers = useCallback(() => {
+    if (resumeTimerRef.current) {
+      clearInterval(resumeTimerRef.current);
+      resumeTimerRef.current = null;
+    }
+    if (safetyTimerRef.current) {
+      clearTimeout(safetyTimerRef.current);
+      safetyTimerRef.current = null;
+    }
   }, []);
 
   const speak = useCallback(
     (text: string, langCode: string = "en") => {
       if (typeof window === "undefined" || !window.speechSynthesis) return;
 
-      // ─── Reset speech engine ───
-      // Chrome bug: after cancel(), the engine stays paused.
-      // resume() alone isn't enough because speak() runs in the same tick.
-      // The reliable fix: cancel → resume → brief yield → speak
+      // ─── Reset any previous speech ───
       window.speechSynthesis.cancel();
+      clearTimers();
+      startFiredRef.current = false;
 
-      if (resumeTimerRef.current) {
-        clearInterval(resumeTimerRef.current);
-        resumeTimerRef.current = null;
-      }
+      // Bump generation — any queued RAF callbacks from a previous
+      // speak() call will see a stale generation and bail out
+      const generation = ++speakGenerationRef.current;
 
+      // ─── Optimistic UI: show speaking state immediately ───
+      // This ensures the button animates even if onstart takes time
+      // or silently fails (Chrome bug after cancel/language change)
+      setIsSpeaking(true);
+
+      // ─── Safety timeout: if onstart never fires, reset UI ───
+      // This prevents the button from being stuck in "speaking" forever
+      safetyTimerRef.current = setTimeout(() => {
+        if (!startFiredRef.current) {
+          // onstart never fired — silent failure
+          console.warn(
+            `[useSpeech] onstart didn't fire within ${SAFETY_TIMEOUT_MS}ms for lang="${langCode}" text="${text.slice(0, 30)}". ` +
+              `Voice found: ${findVoice(langCode) ? "yes" : "no"}. ` +
+              `Speech synthesis may not support this language.`
+          );
+          setIsSpeaking(false);
+        }
+      }, SAFETY_TIMEOUT_MS);
+
+      // ─── Build utterance ───
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = getSpeechLang(langCode);
       utterance.rate = 0.85;
@@ -185,13 +225,32 @@ export function useSpeech() {
 
       // Set voice from provider cache
       const voice = findVoice(langCode);
-      if (voice) utterance.voice = voice;
+      if (voice) {
+        utterance.voice = voice;
+      } else {
+        // No voice found — browser will try to use default voice for utterance.lang
+        // This may or may not work depending on the browser/OS
+        console.info(
+          `[useSpeech] No voice found for lang="${langCode}". ` +
+            `Relying on browser default for "${utterance.lang}". ` +
+            `Available voices: ${window.speechSynthesis.getVoices().length}`
+        );
+      }
 
+      // ─── onstart: confirm speech actually started ───
       utterance.onstart = () => {
+        startFiredRef.current = true;
+        // isSpeaking already true from optimistic set, but re-affirm it
         setIsSpeaking(true);
 
+        // Clear the safety timer — speech started successfully
+        if (safetyTimerRef.current) {
+          clearTimeout(safetyTimerRef.current);
+          safetyTimerRef.current = null;
+        }
+
         // Chrome 15s bug: only for long text (single words never hit this)
-        if (text.length > 100) {
+        if (text.length > LONG_TEXT_THRESHOLD) {
           resumeTimerRef.current = setInterval(() => {
             if (window.speechSynthesis?.speaking) {
               window.speechSynthesis.resume();
@@ -203,48 +262,55 @@ export function useSpeech() {
         }
       };
 
+      // ─── onend: speech finished naturally ───
       utterance.onend = () => {
+        startFiredRef.current = false;
         setIsSpeaking(false);
-        if (resumeTimerRef.current) {
-          clearInterval(resumeTimerRef.current);
-          resumeTimerRef.current = null;
-        }
+        clearTimers();
       };
 
+      // ─── onerror: speech failed ───
       utterance.onerror = (e) => {
+        startFiredRef.current = false;
         if (e.error !== "canceled") {
-          console.warn("[useSpeech] error:", e.error);
+          console.warn(`[useSpeech] error: ${e.error}`, { langCode, text: text.slice(0, 50) });
         }
         setIsSpeaking(false);
-        if (resumeTimerRef.current) {
-          clearInterval(resumeTimerRef.current);
-          resumeTimerRef.current = null;
-        }
+        clearTimers();
       };
 
-      // Chrome fix: yield to the event loop after cancel()
-      // This gives the engine time to fully reset before we speak again.
-      // Without this, Chrome silently drops the utterance after cancel().
-      // Using requestAnimationFrame is more reliable than setTimeout(fn, 0)
-      // because it guarantees at least one paint cycle has passed.
+      // ─── Chrome fix: double requestAnimationFrame with cancel guard ───
+      // After cancel(), Chrome's engine stays paused. A single RAF
+      // isn't always enough — the engine needs at least one full
+      // paint cycle to fully reset. Double-RAF ensures we yield
+      // past the current frame AND the next one, giving Chrome
+      // sufficient time to recover before we call speak().
       requestAnimationFrame(() => {
-        window.speechSynthesis.resume();
-        window.speechSynthesis.speak(utterance);
+        requestAnimationFrame(() => {
+          // Guard: if stop() was called while the RAF was queued,
+          // generation will have changed — bail out
+          if (speakGenerationRef.current !== generation) return;
+          if (typeof window === "undefined" || !window.speechSynthesis) return;
+
+          // Resume the engine (in case it's paused from a previous cancel)
+          window.speechSynthesis.resume();
+          // Now speak
+          window.speechSynthesis.speak(utterance);
+        });
       });
     },
-    [findVoice]
+    [findVoice, clearTimers]
   );
 
   const stop = useCallback(() => {
     if (typeof window === "undefined" || !window.speechSynthesis) return;
+    // Bump generation so any queued RAF callbacks from speak() bail out
+    speakGenerationRef.current++;
     window.speechSynthesis.cancel();
-    window.speechSynthesis.resume(); // Chrome fix
+    startFiredRef.current = false;
     setIsSpeaking(false);
-    if (resumeTimerRef.current) {
-      clearInterval(resumeTimerRef.current);
-      resumeTimerRef.current = null;
-    }
-  }, []);
+    clearTimers();
+  }, [clearTimers]);
 
   return { speak, stop, isSpeaking, voicesReady };
 }

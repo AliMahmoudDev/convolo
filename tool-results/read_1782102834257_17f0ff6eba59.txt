@@ -1,0 +1,747 @@
+     1→/**
+     2→ * SRS Review Page — Flashcard-style vocabulary review
+     3→ *
+     4→ * ORGANIZED BY LANGUAGE:
+     5→ * ─────────────────────
+     6→ * - Only reviews words from the selected language pair
+     7→ * - Language indicator shown prominently at the top
+     8→ * - Language pair passed as query param to API
+     9→ *
+    10→ * Features:
+    11→ * - Full-screen flashcard experience
+    12→ * - Card flip animation (CSS transform)
+    13→ * - 4 rating buttons: Again (red), Hard (orange), Good (green), Easy (blue)
+    14→ * - Progress bar at top
+    15→ * - Review Complete summary at end (broken down by language)
+    16→ * - Empty state when no cards due
+    17→ * - Mobile-first, touch-friendly design
+    18→ */
+    19→
+    20→"use client";
+    21→
+    22→import { useState, useEffect, useCallback, Suspense } from "react";
+    23→import Link from "next/link";
+    24→import { useSearchParams } from "next/navigation";
+    25→import {
+    26→  ArrowLeft,
+    27→  BookOpen,
+    28→  RotateCcw,
+    29→  MessageSquare,
+    30→  Trophy,
+    31→  Target,
+    32→  CheckCircle2,
+    33→  Sparkles,
+    34→  Globe,
+    35→  Volume2,
+    36→  VolumeX,
+    37→} from "lucide-react";
+    38→import { Button } from "@/components/ui/button";
+    39→import { Progress } from "@/components/ui/progress";
+    40→import { SUPPORTED_LANGUAGES } from "@/lib/constants";
+    41→import { useTargetLanguage, useNativeLanguage, useProfileStore } from "@/stores/profile-store";
+    42→import { useSpeech } from "@/hooks/use-speech";
+    43→
+    44→// ═══════════════════════════════════════════
+    45→// Types
+    46→// ═══════════════════════════════════════════
+    47→
+    48→interface SrsMeta {
+    49→  key: string;
+    50→  mastery: number;
+    51→  lastReviewed: string | null;
+    52→  nextReview: string | null;
+    53→  reviewCount: number;
+    54→  correctCount: number;
+    55→}
+    56→
+    57→interface ReviewItem {
+    58→  word: string;
+    59→  translation: string;
+    60→  definition?: string;
+    61→  partOfSpeech?: string;
+    62→  exampleSentence?: string;
+    63→  itemId: string;
+    64→  srs: SrsMeta;
+    65→  languagePair?: string;
+    66→}
+    67→
+    68→interface ReviewResult {
+    69→  itemId: string;
+    70→  quality: "again" | "hard" | "good" | "easy";
+    71→}
+    72→
+    73→type ReviewPhase = "loading" | "empty" | "reviewing" | "complete";
+    74→
+    75→// ═══════════════════════════════════════════
+    76→// Helper — get language info
+    77→// ═══════════════════════════════════════════
+    78→
+    79→function getLangInfo(code: string) {
+    80→  return (
+    81→    SUPPORTED_LANGUAGES.find((l) => l.code === code) || {
+    82→      code,
+    83→      name: code,
+    84→      flagEmoji: "🌐",
+    85→      nativeName: code,
+    86→    }
+    87→  );
+    88→}
+    89→
+    90→// ═══════════════════════════════════════════
+    91→// Part-of-speech badge color map
+    92→// ═══════════════════════════════════════════
+    93→
+    94→const POS_COLORS: Record<string, string> = {
+    95→  noun: "bg-[var(--accent-light)] text-[var(--accent-primary)]",
+    96→  verb: "bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400",
+    97→  adjective: "bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-400",
+    98→  adverb: "bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400",
+    99→  preposition: "bg-pink-50 text-pink-700 dark:bg-pink-900/20 dark:text-pink-400",
+   100→  conjunction: "bg-cyan-50 text-cyan-700 dark:bg-cyan-900/20 dark:text-cyan-400",
+   101→  pronoun: "bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:text-purple-400",
+   102→  interjection: "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400",
+   103→  phrase: "bg-teal-50 text-teal-700 dark:bg-teal-900/20 dark:text-teal-400",
+   104→};
+   105→
+   106→function getPosBadgeClass(pos?: string): string {
+   107→  if (!pos) return "bg-[var(--bg-elevated)] text-[var(--text-muted)]";
+   108→  const normalized = pos.toLowerCase().trim();
+   109→  return POS_COLORS[normalized] || "bg-[var(--bg-elevated)] text-[var(--text-muted)]";
+   110→}
+   111→
+   112→// ═══════════════════════════════════════════
+   113→// Rating button config
+   114→// ═══════════════════════════════════════════
+   115→
+   116→const RATING_BUTTONS = [
+   117→  {
+   118→    quality: "again" as const,
+   119→    label: "Again",
+   120→    shortcut: "1",
+   121→    color: "bg-red-500 hover:bg-red-600 active:bg-red-700 text-white",
+   122→    sublabel: "1 min",
+   123→  },
+   124→  {
+   125→    quality: "hard" as const,
+   126→    label: "Hard",
+   127→    shortcut: "2",
+   128→    color: "bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white",
+   129→    sublabel: "10 min",
+   130→  },
+   131→  {
+   132→    quality: "good" as const,
+   133→    label: "Good",
+   134→    shortcut: "3",
+   135→    color: "bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white",
+   136→    sublabel: "1 day",
+   137→  },
+   138→  {
+   139→    quality: "easy" as const,
+   140→    label: "Easy",
+   141→    shortcut: "4",
+   142→    color: "bg-sky-500 hover:bg-sky-600 active:bg-sky-700 text-white",
+   143→    sublabel: "7 days",
+   144→  },
+   145→];
+   146→
+   147→// ═══════════════════════════════════════════
+   148→// Main Page Component
+   149→// ═══════════════════════════════════════════
+   150→
+   151→function VocabularyReviewContent() {
+   152→  const targetLang = useTargetLanguage();
+   153→  const nativeLang = useNativeLanguage();
+   154→  const profile = useProfileStore((s) => s.profile);
+   155→
+   156→  // Get language pair from URL params or default to profile
+   157→  const searchParams = useSearchParams();
+   158→  const urlLanguagePair = searchParams.get("languagePair") || "";
+   159→  const profileLanguagePair = `${profile?.nativeLanguage || "en"}-${profile?.targetLanguage || "ar"}`;
+   160→  const activeLanguagePair = urlLanguagePair || profileLanguagePair;
+   161→
+   162→  const [nativeCode, targetCode] = activeLanguagePair.split("-");
+   163→  const reviewTargetInfo = getLangInfo(targetCode);
+   164→  const reviewNativeInfo = getLangInfo(nativeCode);
+   165→
+   166→  // ─── State ───
+   167→  const [phase, setPhase] = useState<ReviewPhase>("loading");
+   168→  const [items, setItems] = useState<ReviewItem[]>([]);
+   169→  const [currentIndex, setCurrentIndex] = useState(0);
+   170→  const [isFlipped, setIsFlipped] = useState(false);
+   171→  const [results, setResults] = useState<ReviewResult[]>([]);
+   172→  const [isSubmitting, setIsSubmitting] = useState(false);
+   173→  const { speak: speakWord, stop: stopSpeech, isSpeaking } = useSpeech();
+   174→  const [error, setError] = useState<string | null>(null);
+   175→
+   176→  // ─── Derived ───
+   177→  const currentItem = items[currentIndex] || null;
+   178→  const totalItems = items.length;
+   179→  const reviewedCount = results.length;
+   180→  const progressPercent = totalItems > 0 ? (reviewedCount / totalItems) * 100 : 0;
+   181→
+   182→  // ─── Fetch review items ───
+   183→  const loadReviewItems = useCallback(
+   184→    async (resetState: boolean = true) => {
+   185→      if (resetState) {
+   186→        setPhase("loading");
+   187→        setError(null);
+   188→        setResults([]);
+   189→        setCurrentIndex(0);
+   190→        setIsFlipped(false);
+   191→      }
+   192→
+   193→      try {
+   194→        const params = new URLSearchParams();
+   195→        if (activeLanguagePair) {
+   196→          params.set("languagePair", activeLanguagePair);
+   197→        }
+   198→
+   199→        const res = await fetch(`/api/vocabulary/review?${params.toString()}`);
+   200→        const data = await res.json();
+   201→
+   202→        if (!data.success) {
+   203→          setError(data.error?.message || "Failed to load review items");
+   204→          setPhase("empty");
+   205→          return;
+   206→        }
+   207→
+   208→        const reviewItems: ReviewItem[] = data.data.items || [];
+   209→
+   210→        if (reviewItems.length === 0) {
+   211→          setPhase("empty");
+   212→        } else {
+   213→          setItems(reviewItems);
+   214→          setPhase("reviewing");
+   215→        }
+   216→      } catch {
+   217→        setError("Something went wrong. Please try again.");
+   218→        setPhase("empty");
+   219→      }
+   220→    },
+   221→    [activeLanguagePair]
+   222→  );
+   223→
+   224→  // ─── Initial load ───
+   225→  useEffect(() => {
+   226→    loadReviewItems(true);
+   227→  }, [loadReviewItems]);
+   228→
+   229→  // ─── Handle card flip ───
+   230→  const handleFlip = () => {
+   231→    setIsFlipped((prev) => !prev);
+   232→  };
+   233→
+   234→  // ─── Handle rating ───
+   235→  const handleRate = useCallback(
+   236→    async (quality: "again" | "hard" | "good" | "easy") => {
+   237→      if (!currentItem || isSubmitting) return;
+   238→
+   239→      setIsSubmitting(true);
+   240→
+   241→      // Record result locally
+   242→      const result: ReviewResult = { itemId: currentItem.itemId, quality };
+   243→      setResults((prev) => [...prev, result]);
+   244→
+   245→      // Submit to API (non-blocking, fire and forget for smooth UX)
+   246→      fetch("/api/vocabulary/review", {
+   247→        method: "POST",
+   248→        headers: { "Content-Type": "application/json" },
+   249→        body: JSON.stringify({ itemId: currentItem.itemId, quality }),
+   250→      }).catch(() => {
+   251→        // Silently fail — client tracks progress
+   252→      });
+   253→
+   254→      // Move to next card or complete
+   255→      if (currentIndex + 1 >= totalItems) {
+   256→        // Short delay for visual feedback
+   257→        setTimeout(() => {
+   258→          setPhase("complete");
+   259→          setIsSubmitting(false);
+   260→        }, 300);
+   261→      } else {
+   262→        setTimeout(() => {
+   263→          setCurrentIndex((prev) => prev + 1);
+   264→          setIsFlipped(false);
+   265→          setIsSubmitting(false);
+   266→        }, 250);
+   267→      }
+   268→    },
+   269→    [currentItem, isSubmitting, currentIndex, totalItems]
+   270→  );
+   271→
+   272→  // ─── Keyboard shortcuts ───
+   273→  useEffect(() => {
+   274→    if (phase !== "reviewing") return;
+   275→
+   276→    const handleKeyDown = (e: KeyboardEvent) => {
+   277→      if (e.key === " " || e.key === "Enter") {
+   278→        e.preventDefault();
+   279→        setIsFlipped((prev) => !prev);
+   280→        return;
+   281→      }
+   282→
+   283→      const qualityMap: Record<string, "again" | "hard" | "good" | "easy"> = {
+   284→        "1": "again",
+   285→        "2": "hard",
+   286→        "3": "good",
+   287→        "4": "easy",
+   288→      };
+   289→
+   290→      const quality = qualityMap[e.key];
+   291→      if (quality && isFlipped && !isSubmitting) {
+   292→        handleRate(quality);
+   293→      }
+   294→    };
+   295→
+   296→    window.addEventListener("keydown", handleKeyDown);
+   297→    return () => window.removeEventListener("keydown", handleKeyDown);
+   298→  }, [phase, isFlipped, isSubmitting, handleRate]);
+   299→
+   300→  // ─── Calculate summary stats ───
+   301→  const correctCount = results.filter((r) => r.quality === "good" || r.quality === "easy").length;
+   302→  const accuracy = results.length > 0 ? Math.round((correctCount / results.length) * 100) : 0;
+   303→
+   304→  // ═══════════════════════════════════════════
+   305→  // Render: Loading State
+   306→  // ═══════════════════════════════════════════
+   307→  if (phase === "loading") {
+   308→    return (
+   309→      <div className="flex min-h-[80vh] items-center justify-center">
+   310→        <div className="text-center">
+   311→          <div className="mx-auto mb-4 h-12 w-12 animate-spin rounded-full border-4 border-[var(--border-default)] border-t-[var(--accent-primary)]" />
+   312→          <p className="text-sm text-[var(--text-secondary)]">
+   313→            Loading {reviewTargetInfo.name} review cards...
+   314→          </p>
+   315→        </div>
+   316→      </div>
+   317→    );
+   318→  }
+   319→
+   320→  // ═══════════════════════════════════════════
+   321→  // Render: Empty State
+   322→  // ═══════════════════════════════════════════
+   323→  if (phase === "empty") {
+   324→    return (
+   325→      <div className="flex min-h-[80vh] items-center justify-center px-4">
+   326→        <div className="w-full max-w-md text-center">
+   327→          <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-3xl bg-[var(--accent-light)]">
+   328→            <BookOpen className="h-10 w-10 text-[var(--accent-primary)]" />
+   329→          </div>
+   330→          <h1
+   331→            className="mb-3 text-2xl font-bold text-[var(--text-primary)]"
+   332→            style={{ fontFamily: "var(--font-heading-cfg)" }}
+   333→          >
+   334→            No {reviewTargetInfo.name} cards to review
+   335→          </h1>
+   336→          <p className="mb-8 text-[var(--text-secondary)]">
+   337→            No {reviewTargetInfo.name} cards due for review right now. Start a conversation to learn
+   338→            new words, or check another language!
+   339→          </p>
+   340→
+   341→          {error && (
+   342→            <div className="mb-6 rounded-xl border border-[var(--state-error)]/20 bg-[var(--state-error-light)] p-3 text-sm text-[var(--state-error)]">
+   343→              {error}
+   344→            </div>
+   345→          )}
+   346→
+   347→          <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
+   348→            <Link href="/learn">
+   349→              <Button className="w-full gap-2 sm:w-auto">
+   350→                <MessageSquare className="h-4 w-4" />
+   351→                Start a Conversation
+   352→              </Button>
+   353→            </Link>
+   354→            <Link href="/vocabulary">
+   355→              <Button variant="outline" className="w-full gap-2 sm:w-auto">
+   356→                <BookOpen className="h-4 w-4" />
+   357→                View Vocabulary
+   358→              </Button>
+   359→            </Link>
+   360→          </div>
+   361→        </div>
+   362→      </div>
+   363→    );
+   364→  }
+   365→
+   366→  // ═══════════════════════════════════════════
+   367→  // Render: Review Complete
+   368→  // ═══════════════════════════════════════════
+   369→  if (phase === "complete") {
+   370→    return (
+   371→      <div className="flex min-h-[80vh] items-center justify-center px-4">
+   372→        <div className="w-full max-w-md text-center">
+   373→          {/* Trophy icon */}
+   374→          <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-3xl bg-gradient-to-br from-amber-100 to-yellow-50 dark:from-amber-900/30 dark:to-yellow-900/20">
+   375→            <Trophy className="h-10 w-10 text-amber-500" />
+   376→          </div>
+   377→
+   378→          <h1
+   379→            className="mb-2 text-2xl font-bold text-[var(--text-primary)]"
+   380→            style={{ fontFamily: "var(--font-heading-cfg)" }}
+   381→          >
+   382→            Review Complete!
+   383→          </h1>
+   384→          <p className="mb-2 text-[var(--text-secondary)]">
+   385→            Great job reviewing your {reviewTargetInfo.name} vocabulary. Keep it up!
+   386→          </p>
+   387→          <p className="mb-8 text-sm text-[var(--text-muted)]">
+   388→            {reviewNativeInfo.flagEmoji} {reviewNativeInfo.name} → {reviewTargetInfo.flagEmoji}{" "}
+   389→            {reviewTargetInfo.name}
+   390→          </p>
+   391→
+   392→          {/* Stats Grid */}
+   393→          <div className="mb-8 grid grid-cols-3 gap-4">
+   394→            <div className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-4">
+   395→              <div className="mb-1 flex items-center justify-center">
+   396→                <RotateCcw className="h-5 w-5 text-[var(--accent-primary)]" />
+   397→              </div>
+   398→              <p
+   399→                className="text-2xl font-bold text-[var(--text-primary)]"
+   400→                style={{ fontFamily: "var(--font-heading-cfg)" }}
+   401→              >
+   402→                {results.length}
+   403→              </p>
+   404→              <p className="text-xs text-[var(--text-muted)]">Cards Reviewed</p>
+   405→            </div>
+   406→            <div className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-4">
+   407→              <div className="mb-1 flex items-center justify-center">
+   408→                <Target className="h-5 w-5 text-emerald-500" />
+   409→              </div>
+   410→              <p
+   411→                className="text-2xl font-bold text-[var(--text-primary)]"
+   412→                style={{ fontFamily: "var(--font-heading-cfg)" }}
+   413→              >
+   414→                {accuracy}%
+   415→              </p>
+   416→              <p className="text-xs text-[var(--text-muted)]">Accuracy</p>
+   417→            </div>
+   418→            <div className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-4">
+   419→              <div className="mb-1 flex items-center justify-center">
+   420→                <CheckCircle2 className="h-5 w-5 text-sky-500" />
+   421→              </div>
+   422→              <p
+   423→                className="text-2xl font-bold text-[var(--text-primary)]"
+   424→                style={{ fontFamily: "var(--font-heading-cfg)" }}
+   425→              >
+   426→                {correctCount}
+   427→              </p>
+   428→              <p className="text-xs text-[var(--text-muted)]">Correct</p>
+   429→            </div>
+   430→          </div>
+   431→
+   432→          {/* Breakdown */}
+   433→          <div className="mb-8 rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-4">
+   434→            <h3
+   435→              className="mb-3 text-sm font-semibold text-[var(--text-primary)]"
+   436→              style={{ fontFamily: "var(--font-heading-cfg)" }}
+   437→            >
+   438→              Rating Breakdown
+   439→            </h3>
+   440→            <div className="grid grid-cols-4 gap-2">
+   441→              {(["again", "hard", "good", "easy"] as const).map((quality) => {
+   442→                const count = results.filter((r) => r.quality === quality).length;
+   443→                const config = RATING_BUTTONS.find((b) => b.quality === quality)!;
+   444→                return (
+   445→                  <div key={quality} className="text-center">
+   446→                    <div
+   447→                      className={`mx-auto mb-1 flex h-8 w-8 items-center justify-center rounded-lg ${quality === "again" ? "bg-red-100 text-red-600 dark:bg-red-900/20 dark:text-red-400" : quality === "hard" ? "bg-orange-100 text-orange-600 dark:bg-orange-900/20 dark:text-orange-400" : quality === "good" ? "bg-emerald-100 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400" : "bg-sky-100 text-sky-600 dark:bg-sky-900/20 dark:text-sky-400"}`}
+   448→                    >
+   449→                      <span className="text-sm font-bold">{count}</span>
+   450→                    </div>
+   451→                    <p className="text-[10px] font-medium text-[var(--text-muted)]">
+   452→                      {config.label}
+   453→                    </p>
+   454→                  </div>
+   455→                );
+   456→              })}
+   457→            </div>
+   458→          </div>
+   459→
+   460→          {/* Actions */}
+   461→          <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
+   462→            <Button
+   463→              onClick={() => loadReviewItems(true)}
+   464→              className="w-full gap-2 sm:w-auto"
+   465→              variant="outline"
+   466→            >
+   467→              <RotateCcw className="h-4 w-4" />
+   468→              Review Again
+   469→            </Button>
+   470→            <Link href="/vocabulary">
+   471→              <Button className="w-full gap-2 sm:w-auto">
+   472→                <BookOpen className="h-4 w-4" />
+   473→                Back to Vocabulary
+   474→              </Button>
+   475→            </Link>
+   476→          </div>
+   477→        </div>
+   478→      </div>
+   479→    );
+   480→  }
+   481→
+   482→  // ═══════════════════════════════════════════
+   483→  // Render: Reviewing (Flashcard)
+   484→  // ═══════════════════════════════════════════
+   485→  return (
+   486→    <div className="flex min-h-[80vh] flex-col">
+   487→      {/* ─── Top Bar ─── */}
+   488→      <div className="sticky top-0 z-10 border-b border-[var(--border-default)] bg-[var(--bg-base)]/95 backdrop-blur-sm">
+   489→        <div className="mx-auto flex max-w-2xl items-center gap-3 px-4 py-3">
+   490→          <Link
+   491→            href="/vocabulary"
+   492→            className="flex h-9 w-9 items-center justify-center rounded-xl text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)]"
+   493→          >
+   494→            <ArrowLeft className="h-5 w-5" />
+   495→          </Link>
+   496→          <div className="flex-1">
+   497→            <div className="mb-1.5 flex items-center justify-between">
+   498→              <span className="text-sm font-medium text-[var(--text-primary)]">
+   499→                {reviewedCount + 1} of {totalItems}
+   500→              </span>
+   501→              <span className="flex items-center gap-1 text-xs text-[var(--text-muted)]">
+   502→                <Globe className="h-3 w-3" />
+   503→                {reviewNativeInfo.flagEmoji} {reviewNativeInfo.name} → {reviewTargetInfo.flagEmoji}{" "}
+   504→                {reviewTargetInfo.name}
+   505→              </span>
+   506→            </div>
+   507→            <Progress value={progressPercent} className="h-2" />
+   508→          </div>
+   509→        </div>
+   510→      </div>
+   511→
+   512→      {/* ─── Card Area ─── */}
+   513→      <div className="flex flex-1 items-center justify-center px-4 py-6">
+   514→        <div className="w-full max-w-lg">
+   515→          {/* Language indicator badge */}
+   516→          <div className="mb-4 flex items-center justify-center gap-2">
+   517→            <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--accent-light)] px-3 py-1 text-xs font-medium text-[var(--accent-primary)]">
+   518→              {reviewTargetInfo.flagEmoji} {reviewTargetInfo.name}
+   519→            </span>
+   520→            <span className="text-xs text-[var(--text-muted)]">Reviewing</span>
+   521→          </div>
+   522→
+   523→          {/* Flip Card Container */}
+   524→          <div
+   525→            className="cursor-pointer perspective-[1000px]"
+   526→            onClick={handleFlip}
+   527→            role="button"
+   528→            tabIndex={0}
+   529→            aria-label={isFlipped ? "Hide answer" : "Show answer"}
+   530→            onKeyDown={(e) => {
+   531→              if (e.key === "Enter" || e.key === " ") {
+   532→                e.preventDefault();
+   533→                handleFlip();
+   534→              }
+   535→            }}
+   536→          >
+   537→            <div
+   538→              className={`relative w-full transition-transform duration-500 [transform-style:preserve-3d] ${isFlipped ? "[transform:rotateY(180deg)]" : ""}`}
+   539→            >
+   540→              {/* ─── Front of Card ─── */}
+   541→              <div className="w-full [backface-visibility:hidden]">
+   542→                <div className="min-h-[320px] rounded-3xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-8 shadow-[var(--shadow-lg)] sm:min-h-[380px]">
+   543→                  <div className="flex h-full flex-col items-center justify-center text-center">
+   544→                    {/* Part of speech badge */}
+   545→                    {currentItem?.partOfSpeech && (
+   546→                      <span
+   547→                        className={`mb-4 inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${getPosBadgeClass(currentItem.partOfSpeech)}`}
+   548→                      >
+   549→                        {currentItem.partOfSpeech}
+   550→                      </span>
+   551→                    )}
+   552→
+   553→                    {/* Word */}
+   554→                    <h2
+   555→                      className="mb-2 text-4xl font-bold text-[var(--text-primary)] sm:text-5xl"
+   556→                      style={{ fontFamily: "var(--font-heading-cfg)" }}
+   557→                    >
+   558→                      {currentItem?.word}
+   559→                    </h2>
+   560→
+   561→                    {/* Listen button */}
+   562→                    <button
+   563→                      onClick={(e) => {
+   564→                        e.stopPropagation();
+   565→                        if (isSpeaking) {
+   566→                          stopSpeech();
+   567→                        } else if (currentItem?.word) {
+   568→                          speakWord(currentItem.word, targetCode);
+   569→                        }
+   570→                      }}
+   571→                      className={`mb-4 rounded-full p-2 transition-all duration-200 ${
+   572→                        isSpeaking
+   573→                          ? "animate-pulse bg-[var(--accent-light)] text-[var(--accent-primary)]"
+   574→                          : "text-[var(--text-muted)] hover:bg-[var(--bg-elevated)] hover:text-[var(--accent-primary)]"
+   575→                      }`}
+   576→                      title={isSpeaking ? "Stop" : "Listen to pronunciation"}
+   577→                    >
+   578→                      {isSpeaking ? (
+   579→                        <VolumeX className="h-5 w-5" />
+   580→                      ) : (
+   581→                        <Volume2 className="h-5 w-5" />
+   582→                      )}
+   583→                    </button>
+   584→
+   585→                    {/* Language hint */}
+   586→                    <p className="mb-4 text-xs text-[var(--text-muted)]">{reviewTargetInfo.name}</p>
+   587→
+   588→                    {/* Mastery indicator */}
+   589→                    {currentItem?.srs && (
+   590→                      <div className="mt-4 flex items-center gap-1">
+   591→                        {Array.from({ length: 5 }).map((_, i) => (
+   592→                          <div
+   593→                            key={i}
+   594→                            className={`h-1.5 w-6 rounded-full transition-colors ${
+   595→                              i < currentItem.srs.mastery
+   596→                                ? "bg-[var(--accent-primary)]"
+   597→                                : "bg-[var(--border-default)]"
+   598→                            }`}
+   599→                          />
+   600→                        ))}
+   601→                      </div>
+   602→                    )}
+   603→
+   604→                    {/* Tap hint */}
+   605→                    <p className="mt-6 text-xs text-[var(--text-muted)]">Tap to reveal answer</p>
+   606→                  </div>
+   607→                </div>
+   608→              </div>
+   609→
+   610→              {/* ─── Back of Card ─── */}
+   611→              <div className="absolute inset-0 w-full [transform:rotateY(180deg)] [backface-visibility:hidden]">
+   612→                <div className="min-h-[320px] rounded-3xl border border-[var(--accent-primary)]/30 bg-[var(--bg-surface)] p-8 shadow-[var(--shadow-glow)] sm:min-h-[380px]">
+   613→                  <div className="flex h-full flex-col items-center justify-center text-center">
+   614→                    {/* Word (smaller) + Part of speech */}
+   615→                    <div className="mb-2 flex items-center gap-2">
+   616→                      <h3
+   617→                        className="text-xl font-bold text-[var(--text-primary)]"
+   618→                        style={{ fontFamily: "var(--font-heading-cfg)" }}
+   619→                      >
+   620→                        {currentItem?.word}
+   621→                      </h3>
+   622→                      {currentItem?.partOfSpeech && (
+   623→                        <span
+   624→                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${getPosBadgeClass(currentItem.partOfSpeech)}`}
+   625→                        >
+   626→                          {currentItem.partOfSpeech}
+   627→                        </span>
+   628→                      )}
+   629→                    </div>
+   630→
+   631→                    {/* Translation + Listen */}
+   632→                    <div className="mb-1 flex items-center gap-2">
+   633→                      <p className="text-2xl font-semibold text-[var(--accent-primary)]">
+   634→                        {currentItem?.translation}
+   635→                      </p>
+   636→                      <button
+   637→                        onClick={(e) => {
+   638→                          e.stopPropagation();
+   639→                          if (isSpeaking) {
+   640→                            stopSpeech();
+   641→                          } else if (currentItem?.translation) {
+   642→                            speakWord(currentItem.translation, nativeCode);
+   643→                          }
+   644→                        }}
+   645→                        className={`rounded-full p-1.5 transition-all duration-200 ${
+   646→                          isSpeaking
+   647→                            ? "animate-pulse bg-[var(--accent-light)] text-[var(--accent-primary)]"
+   648→                            : "text-[var(--text-muted)] hover:bg-[var(--bg-elevated)] hover:text-[var(--accent-primary)]"
+   649→                        }`}
+   650→                        title={isSpeaking ? "Stop" : `Listen in ${reviewNativeInfo.name}`}
+   651→                      >
+   652→                        {isSpeaking ? (
+   653→                          <VolumeX className="h-4 w-4" />
+   654→                        ) : (
+   655→                          <Volume2 className="h-4 w-4" />
+   656→                        )}
+   657→                      </button>
+   658→                    </div>
+   659→                    <p className="mb-4 text-[10px] text-[var(--text-muted)]">
+   660→                      {reviewNativeInfo.name} translation
+   661→                    </p>
+   662→
+   663→                    {/* Definition */}
+   664→                    {currentItem?.definition && (
+   665→                      <div className="mb-3 w-full rounded-xl bg-[var(--bg-elevated)] p-3">
+   666→                        <p className="text-sm leading-relaxed text-[var(--text-secondary)]">
+   667→                          {currentItem.definition}
+   668→                        </p>
+   669→                      </div>
+   670→                    )}
+   671→
+   672→                    {/* Example sentence */}
+   673→                    {currentItem?.exampleSentence && (
+   674→                      <div className="mt-2 w-full border-t border-[var(--border-default)] pt-3">
+   675→                        <div className="flex items-start gap-2">
+   676→                          <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-gold)]" />
+   677→                          <p className="text-sm leading-relaxed text-[var(--text-muted)] italic">
+   678→                            {currentItem.exampleSentence}
+   679→                          </p>
+   680→                        </div>
+   681→                      </div>
+   682→                    )}
+   683→                  </div>
+   684→                </div>
+   685→              </div>
+   686→            </div>
+   687→          </div>
+   688→
+   689→          {/* ─── Rating Buttons ─── */}
+   690→          <div className="mt-6">
+   691→            {!isFlipped ? (
+   692→              /* Show flip prompt */
+   693→              <div className="text-center">
+   694→                <Button
+   695→                  variant="outline"
+   696→                  size="lg"
+   697→                  className="gap-2 rounded-2xl px-8"
+   698→                  onClick={handleFlip}
+   699→                >
+   700→                  Show Answer
+   701→                </Button>
+   702→                <p className="mt-2 text-xs text-[var(--text-muted)]">or press Space / Enter</p>
+   703→              </div>
+   704→            ) : (
+   705→              /* Rating buttons */
+   706→              <div className="grid grid-cols-4 gap-2 sm:gap-3">
+   707→                {RATING_BUTTONS.map((btn) => (
+   708→                  <button
+   709→                    key={btn.quality}
+   710→                    onClick={() => handleRate(btn.quality)}
+   711→                    disabled={isSubmitting}
+   712→                    className={`flex flex-col items-center gap-0.5 rounded-2xl px-2 py-3 font-medium shadow-sm transition-all duration-150 sm:px-4 sm:py-4 ${btn.color} disabled:opacity-50`}
+   713→                  >
+   714→                    <span className="text-sm font-semibold sm:text-base">{btn.label}</span>
+   715→                    <span className="text-[10px] opacity-80">{btn.sublabel}</span>
+   716→                    <span className="mt-0.5 hidden text-[10px] opacity-60 sm:block">
+   717→                      {btn.shortcut}
+   718→                    </span>
+   719→                  </button>
+   720→                ))}
+   721→              </div>
+   722→            )}
+   723→          </div>
+   724→        </div>
+   725→      </div>
+   726→    </div>
+   727→  );
+   728→}
+   729→
+   730→// Wrap with Suspense boundary for useSearchParams()
+   731→export default function VocabularyReviewPage() {
+   732→  return (
+   733→    <Suspense
+   734→      fallback={
+   735→        <div className="flex min-h-[80vh] items-center justify-center">
+   736→          <div className="text-center">
+   737→            <div className="mx-auto mb-4 h-12 w-12 animate-spin rounded-full border-4 border-[var(--border-default)] border-t-[var(--accent-primary)]" />
+   738→            <p className="text-sm text-[var(--text-secondary)]">Loading review...</p>
+   739→          </div>
+   740→        </div>
+   741→      }
+   742→    >
+   743→      <VocabularyReviewContent />
+   744→    </Suspense>
+   745→  );
+   746→}
+   747→
