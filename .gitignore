@@ -47,6 +47,9 @@ prisma/*.db-journal
 # project context (local only)
 project-context/
 
+# Z AI SDK config (use env vars instead — never commit secrets)
+.z-ai-config
+
 # IDE
 .vscode/
 .idea/

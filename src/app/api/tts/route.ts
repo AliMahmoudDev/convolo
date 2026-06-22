@@ -4,7 +4,15 @@
  * Returns WAV audio. Client uses Web Audio API to decode and play.
  * Web Audio API decodeAudioData() supports WAV on ALL browsers (including mobile).
  *
- * Includes detailed error info for debugging.
+ * Uses environment variables for SDK config (Best Practice):
+ *   ZAI_BASE_URL  — API base URL
+ *   ZAI_API_KEY   — API key
+ *   ZAI_CHAT_ID   — Chat ID (optional)
+ *   ZAI_TOKEN     — Auth token (optional)
+ *   ZAI_USER_ID   — User ID (optional)
+ *
+ * On Vercel, set these in Project Settings → Environment Variables.
+ * Locally, add them to .env.local.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -27,10 +35,38 @@ const LANG_VOICES: Record<string, string> = {
 
 let zaiInstance: any = null;
 
+/**
+ * Initialize ZAI SDK using environment variables instead of .z-ai-config file.
+ *
+ * The SDK's ZAI.create() reads from a file, but the constructor new ZAI(config)
+ * accepts a config object directly. We use the constructor to avoid committing
+ * secrets to the repo — all config comes from process.env (Vercel env vars).
+ */
 async function getZAI() {
   if (!zaiInstance) {
+    const baseUrl = process.env.ZAI_BASE_URL;
+    const apiKey = process.env.ZAI_API_KEY;
+
+    if (!baseUrl || !apiKey) {
+      throw new Error(
+        "Missing ZAI config env vars. Set ZAI_BASE_URL and ZAI_API_KEY " +
+          "in your Vercel project settings (or .env.local for local dev)."
+      );
+    }
+
+    const config: Record<string, string> = { baseUrl, apiKey };
+
+    // Optional fields — used in request headers if present
+    if (process.env.ZAI_CHAT_ID) config.chatId = process.env.ZAI_CHAT_ID;
+    if (process.env.ZAI_TOKEN) config.token = process.env.ZAI_TOKEN;
+    if (process.env.ZAI_USER_ID) config.userId = process.env.ZAI_USER_ID;
+
     const ZAI = (await import("z-ai-web-dev-sdk")).default;
-    zaiInstance = await ZAI.create();
+    // ZAI.create() reads from file — we bypass it and use the constructor
+    // directly with config from environment variables (Best Practice).
+    // The constructor is marked private in .d.ts but works at runtime.
+
+    zaiInstance = new (ZAI as any)(config);
   }
   return zaiInstance;
 }
