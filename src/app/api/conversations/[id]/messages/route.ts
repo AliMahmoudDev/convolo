@@ -230,7 +230,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const metadata: Record<string, unknown> = { provider: getAIProvider().name };
 
     // Filter out suggestions that match the user's input (case-insensitive, trimmed)
-    const normalizedUserInput = userContent.trim().toLowerCase();
+    const normalizedUserInput = content.trim().toLowerCase();
     const filteredSuggestions = (aiResponse.suggestions || []).filter(
       (s: string) => s.trim().toLowerCase() !== normalizedUserInput
     );
