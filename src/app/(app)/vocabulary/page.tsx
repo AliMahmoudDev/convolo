@@ -35,7 +35,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SUPPORTED_LANGUAGES } from "@/lib/constants";
 import { useTargetLanguage, useNativeLanguage, useProfileStore } from "@/stores/profile-store";
-import { useSpeech, TTSDebugOverlay } from "@/hooks/use-speech";
+import { useSpeech } from "@/hooks/use-speech";
 
 // ═══════════════════════════════════════════
 // Types
@@ -181,28 +181,6 @@ function VocabularyCard({ item }: { item: VocabItem }) {
 
   return (
     <div className="group rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5 transition-all duration-200 hover:border-[var(--accent-primary)]/30 hover:shadow-[var(--shadow-md)]">
-      {/* ═══ DEBUG: Big red test button — bypasses everything ═══ */}
-      <button
-        onClick={() => {
-          alert(`TEST! word="${item.word}" lang="${targetLang}" pair="${item.languagePair}"`);
-        }}
-        style={{
-          width: "100%",
-          padding: "12px",
-          background: "#dc2626",
-          color: "white",
-          fontSize: "16px",
-          fontWeight: "bold",
-          borderRadius: "8px",
-          border: "none",
-          marginBottom: "8px",
-          cursor: "pointer",
-        }}
-      >
-        🔴 TEST — {item.word} ({targetLang})
-      </button>
-      {/* ═══ END DEBUG ═══ */}
-
       {/* Word + Part of Speech + Listen */}
       <div className="mb-3 flex items-start justify-between gap-2">
         <div className="flex items-center gap-2">
@@ -214,7 +192,6 @@ function VocabularyCard({ item }: { item: VocabItem }) {
           </h3>
           <button
             onClick={() => {
-              alert(`VOLUME CLICKED! word="${item.word}" lang="${targetLang}"`);
               if (isSpeaking) {
                 stop();
               } else {
@@ -436,24 +413,6 @@ export default function VocabularyPage() {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
-      {/* ═══ VERSION INDICATOR — if you see this, you have the NEW code ═══ */}
-      <div
-        style={{
-          position: "sticky",
-          top: 0,
-          zIndex: 9999,
-          background: "#7c3aed",
-          color: "white",
-          textAlign: "center",
-          padding: "8px",
-          fontSize: "14px",
-          fontWeight: "bold",
-          fontFamily: "sans-serif",
-        }}
-      >
-        🔥 CODE v3 — لو شايف ده يبقى الكود الجديد شغال
-      </div>
-
       {/* ═══ Header ═══ */}
       <div className="mb-6">
         <div className="flex items-center gap-3">
@@ -722,9 +681,6 @@ export default function VocabularyPage() {
           )}
         </>
       )}
-
-      {/* TTS Debug Overlay — shows on screen what's happening */}
-      <TTSDebugOverlay />
     </div>
   );
 }
