@@ -1,8 +1,10 @@
 /**
  * useSpeech — TTS using server-side audio with Web Audio API playback
  *
- * Web Audio API decodeAudioData() supports MP3 on ALL browsers (including mobile).
- * Server returns MP3 audio from Google Translate TTS.
+ * Speed is controlled CLIENT-SIDE via AudioBufferSourceNode.playbackRate
+ * — this works for ALL languages and ALL audio sources, unlike server-side
+ * speed parameters which are unreliable (Google Translate ttsspeed only
+ * works for some languages).
  *
  * Speed options:
  *   0.5 — Slow (good for learners)
@@ -14,39 +16,27 @@
 
 "use client";
 
-import { useState, useCallback, useRef, useEffect, useContext, createContext } from "react";
-import type { ReactNode } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 
 // ═══════════════════════════════════════════
-// Context — shared speech speed setting
+// Speed types & options
 // ═══════════════════════════════════════════
 
 export type SpeechSpeed = 0.5 | 0.7 | 1.0 | 1.3 | 1.5;
 
-interface SpeechContextType {
-  voicesReady: true;
-  speed: SpeechSpeed;
-  setSpeed: (speed: SpeechSpeed) => void;
-}
+export const SPEED_OPTIONS: { value: SpeechSpeed; label: string; labelAr: string }[] = [
+  { value: 0.5, label: "Slow", labelAr: "بطيء" },
+  { value: 0.7, label: "Slightly slow", labelAr: "بطيء شوية" },
+  { value: 1.0, label: "Normal", labelAr: "عادي" },
+  { value: 1.3, label: "Slightly fast", labelAr: "سريع شوية" },
+  { value: 1.5, label: "Fast", labelAr: "سريع" },
+];
 
-const SpeechContext = createContext<SpeechContextType>({
-  voicesReady: true,
-  speed: 1.0,
-  setSpeed: () => {},
-});
-
-export function SpeechProvider({ children }: { children: ReactNode }) {
-  const [speed, setSpeed] = useState<SpeechSpeed>(1.0);
-  return (
-    <SpeechContext.Provider value={{ voicesReady: true, speed, setSpeed }}>
-      {children}
-    </SpeechContext.Provider>
-  );
-}
+// ═══════════════════════════════════════════
+// Speed hook (persisted in localStorage)
+// ═══════════════════════════════════════════
 
 export function useSpeechSpeed() {
-  // Read from context — but since we don't always have a provider,
-  // fallback to localStorage
   const [speed, setSpeedState] = useState<SpeechSpeed>(() => {
     if (typeof window === "undefined") return 1.0;
     const saved = localStorage.getItem("tts-speed");
@@ -68,19 +58,20 @@ export function useSpeechSpeed() {
 }
 
 // ═══════════════════════════════════════════
-// Speed labels for UI
+// Speech Provider (unused but kept for compat)
 // ═══════════════════════════════════════════
 
-export const SPEED_OPTIONS: { value: SpeechSpeed; label: string; labelAr: string }[] = [
-  { value: 0.5, label: "Slow", labelAr: "بطيء" },
-  { value: 0.7, label: "Slightly slow", labelAr: "بطيء شوية" },
-  { value: 1.0, label: "Normal", labelAr: "عادي" },
-  { value: 1.3, label: "Slightly fast", labelAr: "سريع شوية" },
-  { value: 1.5, label: "Fast", labelAr: "سريع" },
-];
+import { createContext } from "react";
+import type { ReactNode } from "react";
+
+const SpeechContext = createContext({ voicesReady: true });
+
+export function SpeechProvider({ children }: { children: ReactNode }) {
+  return <SpeechContext.Provider value={{ voicesReady: true }}>{children}</SpeechContext.Provider>;
+}
 
 // ═══════════════════════════════════════════
-// Hook
+// Main Hook
 // ═══════════════════════════════════════════
 
 const LOAD_TIMEOUT_MS = 15000;
@@ -120,23 +111,14 @@ export function useSpeech() {
       cleanup();
       setIsSpeaking(true);
 
-      // Safety timeout
+      // Safety timeout — scale by speed (slower = longer playback)
+      const timeoutMs = Math.max(LOAD_TIMEOUT_MS, LOAD_TIMEOUT_MS / speed);
       timeoutRef.current = setTimeout(() => {
         cleanup();
         setIsSpeaking(false);
-      }, LOAD_TIMEOUT_MS);
+      }, timeoutMs);
 
-      const params = new URLSearchParams({
-        text: text,
-        lang: langCode,
-      });
-
-      // Only add speed param if not default
-      if (speed !== 1.0) {
-        params.set("speed", String(speed));
-      }
-
-      const url = `/api/tts?${params.toString()}`;
+      const url = `/api/tts?text=${encodeURIComponent(text)}&lang=${encodeURIComponent(langCode)}`;
 
       fetch(url)
         .then(async (res) => {
@@ -174,6 +156,7 @@ export function useSpeech() {
           // Create and play source
           const source = ctx.createBufferSource();
           source.buffer = audioBuffer;
+          source.playbackRate.value = speed; // ← CLIENT-SIDE speed control!
           source.connect(ctx.destination);
           sourceRef.current = source;
 

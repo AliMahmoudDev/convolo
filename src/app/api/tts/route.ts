@@ -5,11 +5,9 @@
  * Returns MP3 audio. Client uses Web Audio API decodeAudioData() to play
  * (supports MP3 on ALL browsers including mobile).
  *
- * Query params:
- *   text  — the text to speak (required, max 500 chars)
- *   lang  — language code: en, fr, ar, es, de, ja, ko, zh, pt, it, ru, hi, tr
- *   speed — playback speed: 0.2 (very slow) to 3.0 (very fast), default 1.0
- *           Learners benefit from slower speed (0.5-0.7) for comprehension.
+ * Speed is controlled CLIENT-SIDE via AudioBufferSourceNode.playbackRate
+ * — this is more reliable than Google Translate's ttsspeed parameter which
+ * only works for some languages.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -20,7 +18,6 @@ const MAX_CACHE = 300;
 export async function GET(req: NextRequest) {
   const text = req.nextUrl.searchParams.get("text");
   const lang = req.nextUrl.searchParams.get("lang") || "en";
-  const speedParam = req.nextUrl.searchParams.get("speed");
 
   if (!text || text.trim().length === 0) {
     return NextResponse.json({ error: "Text is required" }, { status: 400 });
@@ -30,14 +27,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Text too long (max 500 chars)" }, { status: 400 });
   }
 
-  // Parse and clamp speed: 0.2 to 3.0, default 1.0
-  let speed = 1.0;
-  if (speedParam) {
-    speed = Math.max(0.2, Math.min(3.0, parseFloat(speedParam) || 1.0));
-  }
-
-  // Check cache (include speed in key so different speeds are cached separately)
-  const key = `${lang}:${speed}:${text}`;
+  // Check cache
+  const key = `${lang}:${text}`;
   const cached = cache.get(key);
   if (cached) {
     return new NextResponse(new Uint8Array(cached), {
@@ -51,20 +42,7 @@ export async function GET(req: NextRequest) {
 
   try {
     // Google Translate TTS endpoint
-    // client=t supports ttsspeed parameter for controlling playback rate
-    const params = new URLSearchParams({
-      ie: "UTF-8",
-      tl: lang,
-      client: "t",
-      q: text.trim(),
-    });
-
-    // Only add ttsspeed if not default (1.0) to keep URLs clean for caching
-    if (speed !== 1.0) {
-      params.set("ttsspeed", String(speed));
-    }
-
-    const ttsUrl = `https://translate.google.com/translate_tts?${params.toString()}`;
+    const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${encodeURIComponent(lang)}&client=tw-ob&q=${encodeURIComponent(text.trim())}`;
 
     const response = await fetch(ttsUrl, {
       headers: {
