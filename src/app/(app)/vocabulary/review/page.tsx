@@ -32,11 +32,14 @@ import {
   CheckCircle2,
   Sparkles,
   Globe,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { SUPPORTED_LANGUAGES } from "@/lib/constants";
 import { useTargetLanguage, useNativeLanguage, useProfileStore } from "@/stores/profile-store";
+import { useSpeech } from "@/hooks/use-speech";
 
 // ═══════════════════════════════════════════
 // Types
@@ -167,6 +170,7 @@ function VocabularyReviewContent() {
   const [isFlipped, setIsFlipped] = useState(false);
   const [results, setResults] = useState<ReviewResult[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { speak: speakWord, stop: stopSpeech, isSpeaking } = useSpeech();
   const [error, setError] = useState<string | null>(null);
 
   // ─── Derived ───
@@ -554,6 +558,30 @@ function VocabularyReviewContent() {
                       {currentItem?.word}
                     </h2>
 
+                    {/* Listen button */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (isSpeaking) {
+                          stopSpeech();
+                        } else if (currentItem?.word) {
+                          speakWord(currentItem.word, targetCode);
+                        }
+                      }}
+                      className={`mb-4 rounded-full p-2 transition-all duration-200 ${
+                        isSpeaking
+                          ? "animate-pulse bg-[var(--accent-light)] text-[var(--accent-primary)]"
+                          : "text-[var(--text-muted)] hover:bg-[var(--bg-elevated)] hover:text-[var(--accent-primary)]"
+                      }`}
+                      title={isSpeaking ? "Stop" : "Listen to pronunciation"}
+                    >
+                      {isSpeaking ? (
+                        <VolumeX className="h-5 w-5" />
+                      ) : (
+                        <Volume2 className="h-5 w-5" />
+                      )}
+                    </button>
+
                     {/* Language hint */}
                     <p className="mb-4 text-xs text-[var(--text-muted)]">{reviewTargetInfo.name}</p>
 
@@ -600,10 +628,34 @@ function VocabularyReviewContent() {
                       )}
                     </div>
 
-                    {/* Translation */}
-                    <p className="mb-1 text-2xl font-semibold text-[var(--accent-primary)]">
-                      {currentItem?.translation}
-                    </p>
+                    {/* Translation + Listen */}
+                    <div className="mb-1 flex items-center gap-2">
+                      <p className="text-2xl font-semibold text-[var(--accent-primary)]">
+                        {currentItem?.translation}
+                      </p>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (isSpeaking) {
+                            stopSpeech();
+                          } else if (currentItem?.translation) {
+                            speakWord(currentItem.translation, nativeCode);
+                          }
+                        }}
+                        className={`rounded-full p-1.5 transition-all duration-200 ${
+                          isSpeaking
+                            ? "animate-pulse bg-[var(--accent-light)] text-[var(--accent-primary)]"
+                            : "text-[var(--text-muted)] hover:bg-[var(--bg-elevated)] hover:text-[var(--accent-primary)]"
+                        }`}
+                        title={isSpeaking ? "Stop" : `Listen in ${reviewNativeInfo.name}`}
+                      >
+                        {isSpeaking ? (
+                          <VolumeX className="h-4 w-4" />
+                        ) : (
+                          <Volume2 className="h-4 w-4" />
+                        )}
+                      </button>
+                    </div>
                     <p className="mb-4 text-[10px] text-[var(--text-muted)]">
                       {reviewNativeInfo.name} translation
                     </p>

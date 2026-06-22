@@ -25,6 +25,7 @@ import {
   MessageSquare,
   X,
   Volume2,
+  VolumeX,
   Globe,
   ChevronRight,
 } from "lucide-react";
@@ -34,6 +35,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SUPPORTED_LANGUAGES } from "@/lib/constants";
 import { useTargetLanguage, useNativeLanguage, useProfileStore } from "@/stores/profile-store";
+import { useSpeech } from "@/hooks/use-speech";
 
 // ═══════════════════════════════════════════
 // Types
@@ -172,16 +174,42 @@ function EmptyState({ hasSearch, languageName }: { hasSearch: boolean; languageN
 // ═══════════════════════════════════════════
 
 function VocabularyCard({ item }: { item: VocabItem }) {
+  const { speak, stop, isSpeaking } = useSpeech();
+
+  // Extract target language from languagePair
+  const targetLang = item.languagePair?.split("-")[1] || "en";
+
+  const handleListen = () => {
+    if (isSpeaking) {
+      stop();
+    } else {
+      speak(item.word, targetLang);
+    }
+  };
+
   return (
     <div className="group rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5 transition-all duration-200 hover:border-[var(--accent-primary)]/30 hover:shadow-[var(--shadow-md)]">
-      {/* Word + Part of Speech */}
+      {/* Word + Part of Speech + Listen */}
       <div className="mb-3 flex items-start justify-between gap-2">
-        <h3
-          className="text-xl font-bold text-[var(--text-primary)]"
-          style={{ fontFamily: "var(--font-heading-cfg)" }}
-        >
-          {item.word}
-        </h3>
+        <div className="flex items-center gap-2">
+          <h3
+            className="text-xl font-bold text-[var(--text-primary)]"
+            style={{ fontFamily: "var(--font-heading-cfg)" }}
+          >
+            {item.word}
+          </h3>
+          <button
+            onClick={handleListen}
+            className={`rounded-lg p-1 transition-all duration-200 ${
+              isSpeaking
+                ? "animate-pulse bg-[var(--accent-light)] text-[var(--accent-primary)]"
+                : "text-[var(--text-muted)] hover:bg-[var(--bg-elevated)] hover:text-[var(--accent-primary)]"
+            }`}
+            title={isSpeaking ? "Stop" : `Listen in ${getLangInfo(targetLang).name}`}
+          >
+            {isSpeaking ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+          </button>
+        </div>
         {item.partOfSpeech && (
           <span
             className={`inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${getPosBadgeClass(item.partOfSpeech)}`}
@@ -218,16 +246,9 @@ function VocabularyCard({ item }: { item: VocabItem }) {
             Review
           </Button>
         </Link>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="gap-1.5 text-xs"
-          onClick={() => {
-            // Text-to-speech — future feature
-          }}
-        >
-          <Volume2 className="h-3.5 w-3.5" />
-          Listen
+        <Button variant="ghost" size="sm" className="gap-1.5 text-xs" onClick={handleListen}>
+          {isSpeaking ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+          {isSpeaking ? "Stop" : "Listen"}
         </Button>
       </div>
     </div>
