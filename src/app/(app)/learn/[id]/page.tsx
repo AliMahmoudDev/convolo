@@ -248,6 +248,7 @@ export default function ConversationPage() {
                   message={msg}
                   onSuggestionClick={handleSuggestionClick}
                   targetLanguage={conversation?.languagePair?.split("-")[1]}
+                  nativeLanguage={conversation?.languagePair?.split("-")[0]}
                 />
               ))}
 

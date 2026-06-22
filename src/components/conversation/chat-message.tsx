@@ -15,7 +15,7 @@
 
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import {
   Bot,
   User,
@@ -25,9 +25,12 @@ import {
   BookOpen,
   Lightbulb,
   MessageCircle,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import type { Correction, Hint, VocabularyExtraction, GrammarNote } from "@/types/conversation";
 import type { ChatMessageData } from "@/hooks/use-conversation";
+import { useSpeech } from "@/hooks/use-speech";
 
 // ═══════════════════════════════════════════
 // Helper: detect if text is primarily RTL
@@ -78,10 +81,7 @@ function HintInline({ hint }: { hint: Hint }) {
         tip
       </span>
       <div className="min-w-0 flex-1">
-        <span
-          className="text-[var(--text-secondary)]"
-          dir={originalRTL ? "rtl" : "ltr"}
-        >
+        <span className="text-[var(--text-secondary)]" dir={originalRTL ? "rtl" : "ltr"}>
           {hint.original}
         </span>
         <span className="mx-1 text-[var(--text-muted)]">&rarr;</span>
@@ -218,14 +218,43 @@ interface ChatMessageProps {
   message: ChatMessageData;
   /** Callback when a suggestion chip is clicked */
   onSuggestionClick?: (text: string) => void;
-  /** The target language code (for direction detection) */
+  /** The target language code (e.g. "es", "fr") */
   targetLanguage?: string;
+  /** The native language code (e.g. "ar", "en") — used for translation TTS */
+  nativeLanguage?: string;
 }
 
-export function ChatMessage({ message, onSuggestionClick, targetLanguage }: ChatMessageProps) {
+export function ChatMessage({
+  message,
+  onSuggestionClick,
+  targetLanguage,
+  nativeLanguage,
+}: ChatMessageProps) {
   const [showTranslation, setShowTranslation] = useState(false);
   const [showGrammar, setShowGrammar] = useState(false);
   const isUser = message.role === "user";
+
+  // ─── TTS for AI messages ───
+  const { speak, stop, isSpeaking } = useSpeech();
+  const [playingText, setPlayingText] = useState<"content" | "translation" | null>(null);
+
+  const handleListen = useCallback(
+    (text: string, lang: string, which: "content" | "translation") => {
+      if (isSpeaking && playingText === which) {
+        stop();
+        setPlayingText(null);
+      } else {
+        speak(text, lang);
+        setPlayingText(which);
+      }
+    },
+    [isSpeaking, playingText, speak, stop]
+  );
+
+  // Reset playingText when speech finishes
+  useEffect(() => {
+    if (!isSpeaking) setPlayingText(null);
+  }, [isSpeaking]);
 
   const corrections = (message.corrections || []) as Correction[];
   const hints = (message.hints || []) as Hint[];
@@ -271,6 +300,26 @@ export function ChatMessage({ message, onSuggestionClick, targetLanguage }: Chat
           <p className="whitespace-pre-wrap">{message.content}</p>
         </div>
 
+        {/* Listen button (AI messages only) */}
+        {!isUser && (
+          <button
+            onClick={() => handleListen(message.content, targetLanguage || "en", "content")}
+            className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] transition-colors ${
+              isSpeaking && playingText === "content"
+                ? "bg-[var(--accent-light)] text-[var(--accent-primary)]"
+                : "text-[var(--text-muted)] hover:bg-[var(--bg-elevated)] hover:text-[var(--accent-primary)]"
+            }`}
+            dir="ltr"
+          >
+            {isSpeaking && playingText === "content" ? (
+              <VolumeX className="h-3 w-3" />
+            ) : (
+              <Volume2 className="h-3 w-3" />
+            )}
+            {isSpeaking && playingText === "content" ? "Stop" : "Listen"}
+          </button>
+        )}
+
         {/* Translation toggle (AI messages only) — separate block with its own direction */}
         {hasTranslation && !isUser && (
           <div className={`${replyRTL ? "text-right" : "text-left"}`}>
@@ -293,6 +342,25 @@ export function ChatMessage({ message, onSuggestionClick, targetLanguage }: Chat
                 dir={translationRTL ? "rtl" : "ltr"}
               >
                 {message.translatedContent}
+                {/* Listen translation button */}
+                <button
+                  onClick={() =>
+                    handleListen(message.translatedContent!, nativeLanguage || "en", "translation")
+                  }
+                  className={`mt-1.5 inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] transition-colors ${
+                    isSpeaking && playingText === "translation"
+                      ? "bg-[var(--accent-light)] text-[var(--accent-primary)]"
+                      : "text-[var(--text-muted)] hover:bg-[var(--bg-elevated)] hover:text-[var(--accent-primary)]"
+                  }`}
+                  dir="ltr"
+                >
+                  {isSpeaking && playingText === "translation" ? (
+                    <VolumeX className="h-3 w-3" />
+                  ) : (
+                    <Volume2 className="h-3 w-3" />
+                  )}
+                  {isSpeaking && playingText === "translation" ? "Stop" : "Listen"}
+                </button>
               </div>
             )}
           </div>
