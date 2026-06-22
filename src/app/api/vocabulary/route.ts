@@ -78,15 +78,12 @@ export async function GET(request: NextRequest) {
     const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10) || 1);
     const limit = Math.min(200, Math.max(1, parseInt(searchParams.get("limit") || "50", 10) || 50));
 
-    // 4. Get user's conversation IDs — filtered by language pair if specified
-    let convQuery = db.from("conversations").select("id, languagePair").eq("userId", dbUser.id);
-
-    // Filter by language pair if specified
-    if (languagePair) {
-      convQuery = convQuery.eq("languagePair", languagePair);
-    }
-
-    const { data: conversations, error: convError } = await convQuery;
+    // 4. Get ALL user's conversation IDs (not filtered by language)
+    // Words may have been moved between languages via overrides, so we need all
+    const { data: conversations, error: convError } = await db
+      .from("conversations")
+      .select("id, languagePair")
+      .eq("userId", dbUser.id);
 
     if (convError) {
       console.error("[Vocabulary API] Error fetching conversations:", convError);
@@ -112,10 +109,10 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // 5. Fetch messages with vocabularyItems from those conversations
+    // 5. Fetch messages with vocabularyItems + metadata (for language overrides) from those conversations
     const { data: messages, error: msgError } = await db
       .from("messages")
-      .select("conversationId, vocabularyItems")
+      .select("conversationId, vocabularyItems, metadata")
       .in("conversationId", conversationIds)
       .eq("role", "assistant");
 
@@ -125,6 +122,7 @@ export async function GET(request: NextRequest) {
     }
 
     // 6. Extract and deduplicate vocabulary items (tagged with languagePair)
+    // Check vocabularyOverrides in metadata for per-word language reassignment
     const seen = new Set<string>();
     const uniqueItems: VocabItem[] = [];
     const langGroupCounts = new Map<string, number>();
@@ -135,6 +133,11 @@ export async function GET(request: NextRequest) {
 
       const msgLangPair = convLangMap.get(msg.conversationId as string) || "unknown";
 
+      // Build override lookup from message metadata
+      const metadata = msg.metadata as Record<string, unknown> | null;
+      const vocabOverrides =
+        (metadata?.vocabularyOverrides as Record<string, { languagePair: string }>) || {};
+
       for (const item of items) {
         if (typeof item !== "object" || item === null || !("word" in item)) continue;
 
@@ -144,8 +147,16 @@ export async function GET(request: NextRequest) {
         if (!key || seen.has(key)) continue;
         seen.add(key);
 
+        // Check if this word has a language override
+        const itemId = `vocab_${key}`;
+        const override = vocabOverrides[itemId];
+        const effectiveLangPair = override?.languagePair || msgLangPair;
+
         // Apply search filter
         if (search && !matchesSearch(vocabItem, search)) continue;
+
+        // Apply language pair filter (using effective/overridden pair)
+        if (languagePair && effectiveLangPair !== languagePair) continue;
 
         uniqueItems.push({
           word: vocabItem.word,
@@ -153,11 +164,11 @@ export async function GET(request: NextRequest) {
           definition: vocabItem.definition || undefined,
           partOfSpeech: vocabItem.partOfSpeech || undefined,
           exampleSentence: vocabItem.exampleSentence || undefined,
-          languagePair: msgLangPair,
+          languagePair: effectiveLangPair,
         });
 
-        // Track counts per language pair
-        langGroupCounts.set(msgLangPair, (langGroupCounts.get(msgLangPair) || 0) + 1);
+        // Track counts per language pair (using effective pair)
+        langGroupCounts.set(effectiveLangPair, (langGroupCounts.get(effectiveLangPair) || 0) + 1);
       }
     }
 

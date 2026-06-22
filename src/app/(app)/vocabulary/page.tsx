@@ -1,24 +1,22 @@
 /**
  * Vocabulary Book Page — Review and manage learned vocabulary
  *
- * ORGANIZED BY LANGUAGE:
- * ─────────────────────
- * - Vocabulary is grouped by language pair (e.g., English → Arabic)
- * - Language tabs at the top let you switch between languages
- * - Each section shows only words from that language pair
- * - Stats per language section
+ * LOCAL LANGUAGE SWITCHER:
+ * ──────────────────────
+ * - You can switch languages directly on this page
+ * - This does NOT affect your dashboard/profile language
+ * - It's just for browsing vocabulary from different languages
  *
- * Features:
- * - Language pair tabs with word counts
- * - Search bar to filter words within the current language
- * - Grid of vocabulary cards with word, translation, part of speech, definition, example
- * - Empty state when no words collected yet
- * - Review button per language
+ * CHANGE WORD LANGUAGE:
+ * ─────────────────────
+ * - Each card has a "Move to language" option
+ * - This lets you reassign a word to a different language pair
+ * - Useful if a word was saved under the wrong language
  */
 
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import {
   BookOpen,
@@ -29,6 +27,9 @@ import {
   Volume2,
   Globe,
   ChevronRight,
+  ArrowLeftRight,
+  ChevronDown,
+  Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -55,15 +56,6 @@ interface LanguageGroup {
   nativeLang: string;
   targetLang: string;
   count: number;
-}
-
-interface VocabResponse {
-  items: VocabItem[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-  languageGroups: LanguageGroup[];
 }
 
 // ═══════════════════════════════════════════
@@ -166,8 +158,7 @@ function EmptyState({ hasSearch, languageName }: { hasSearch: boolean; languageN
       </h3>
       <p className="mx-auto mb-6 max-w-md text-sm text-[var(--text-secondary)]">
         Start a conversation in {languageName || "your target language"} and words you encounter
-        will be automatically added here. Practice them with spaced repetition to make them stick
-        forever.
+        will be automatically added here.
       </p>
       <Link href="/learn">
         <Button className="gap-2">
@@ -180,10 +171,82 @@ function EmptyState({ hasSearch, languageName }: { hasSearch: boolean; languageN
 }
 
 // ═══════════════════════════════════════════
+// Language Move Dropdown (per card)
+// ═══════════════════════════════════════════
+
+function MoveLanguageDropdown({
+  currentPair,
+  onMove,
+}: {
+  currentPair: string;
+  onMove: (newPair: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    if (open) document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  const [nativeCode, targetCode] = currentPair.split("-");
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-elevated)] hover:text-[var(--text-secondary)]"
+        title="Move to different language"
+      >
+        <ArrowLeftRight className="h-3 w-3" />
+        Move
+      </button>
+      {open && (
+        <div className="absolute bottom-full left-0 z-30 mb-1 w-56 rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-2 shadow-[var(--shadow-lg)]">
+          <p className="mb-2 px-2 text-[10px] font-medium text-[var(--text-muted)]">
+            Move word to language:
+          </p>
+          <div className="max-h-48 overflow-y-auto">
+            {SUPPORTED_LANGUAGES.filter((l) => l.code !== targetCode).map((lang) => {
+              const newPair = `${nativeCode}-${lang.code}`;
+              return (
+                <button
+                  key={lang.code}
+                  onClick={() => {
+                    onMove(newPair);
+                    setOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--accent-light)] hover:text-[var(--accent-primary)]"
+                >
+                  <span className="text-sm">{lang.flagEmoji}</span>
+                  <span>{lang.name}</span>
+                  <span className="ml-auto text-[9px] text-[var(--text-muted)]">
+                    {nativeCode}→{lang.code}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════
 // Vocabulary Card
 // ═══════════════════════════════════════════
 
-function VocabularyCard({ item }: { item: VocabItem }) {
+function VocabularyCard({
+  item,
+  onMoveLanguage,
+}: {
+  item: VocabItem;
+  onMoveLanguage: (word: string, newPair: string) => void;
+}) {
   return (
     <div className="group rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5 transition-all duration-200 hover:border-[var(--accent-primary)]/30 hover:shadow-[var(--shadow-md)]">
       {/* Word + Part of Speech */}
@@ -223,7 +286,7 @@ function VocabularyCard({ item }: { item: VocabItem }) {
       )}
 
       {/* Actions */}
-      <div className="mt-4 flex items-center gap-2">
+      <div className="mt-4 flex items-center gap-1">
         <Link href="/vocabulary/review">
           <Button variant="outline" size="sm" className="gap-1.5 text-xs">
             <RotateCcw className="h-3.5 w-3.5" />
@@ -241,46 +304,13 @@ function VocabularyCard({ item }: { item: VocabItem }) {
           <Volume2 className="h-3.5 w-3.5" />
           Listen
         </Button>
+        {/* Move to different language */}
+        <MoveLanguageDropdown
+          currentPair={item.languagePair || "en-ar"}
+          onMove={(newPair) => onMoveLanguage(item.word, newPair)}
+        />
       </div>
     </div>
-  );
-}
-
-// ═══════════════════════════════════════════
-// Language Tab Component
-// ═══════════════════════════════════════════
-
-function LanguageTab({
-  group,
-  isActive,
-  onClick,
-}: {
-  group: LanguageGroup;
-  isActive: boolean;
-  onClick: () => void;
-}) {
-  const nativeInfo = getLangInfo(group.nativeLang);
-  const targetInfo = getLangInfo(group.targetLang);
-
-  return (
-    <button
-      onClick={onClick}
-      className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-all duration-200 ${
-        isActive
-          ? "bg-[var(--accent-primary)] text-white shadow-sm"
-          : "border border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:border-[var(--accent-primary)]/30 hover:bg-[var(--accent-light)] hover:text-[var(--accent-primary)]"
-      }`}
-    >
-      <span className="text-base">{targetInfo.flagEmoji}</span>
-      <span>{targetInfo.name}</span>
-      <span
-        className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
-          isActive ? "bg-white/20 text-white" : "bg-[var(--bg-elevated)] text-[var(--text-muted)]"
-        }`}
-      >
-        {group.count}
-      </span>
-    </button>
   );
 }
 
@@ -289,8 +319,6 @@ function LanguageTab({
 // ═══════════════════════════════════════════
 
 export default function VocabularyPage() {
-  const targetLang = useTargetLanguage();
-  const nativeLang = useNativeLanguage();
   const profile = useProfileStore((s) => s.profile);
 
   const [items, setItems] = useState<VocabItem[]>([]);
@@ -301,6 +329,7 @@ export default function VocabularyPage() {
   const [searchInput, setSearchInput] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [movingWord, setMovingWord] = useState<string | null>(null);
 
   // Language groups + active language
   const [languageGroups, setLanguageGroups] = useState<LanguageGroup[]>([]);
@@ -343,7 +372,6 @@ export default function VocabularyPage() {
         setPage(data.data.page || 1);
         setTotalPages(data.data.totalPages || 0);
 
-        // Update language groups
         if (data.data.languageGroups) {
           setLanguageGroups(data.data.languageGroups);
         }
@@ -391,7 +419,7 @@ export default function VocabularyPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  // ─── Language tab change ───
+  // ─── Language switcher change (LOCAL — does NOT affect profile) ───
   const handleLanguageChange = (langPair: string) => {
     setActiveLanguagePair(langPair);
     setPage(1);
@@ -400,11 +428,50 @@ export default function VocabularyPage() {
     fetchVocabulary(1, "", langPair);
   };
 
+  // ─── Handle local dropdown switch ───
+  const handleLocalNativeChange = (newNative: string) => {
+    const target = (activeLanguagePair || defaultLanguagePair).split("-")[1] || "ar";
+    const newPair = `${newNative}-${target}`;
+    handleLanguageChange(newPair);
+  };
+
+  const handleLocalTargetChange = (newTarget: string) => {
+    const native = (activeLanguagePair || defaultLanguagePair).split("-")[0] || "en";
+    const newPair = `${native}-${newTarget}`;
+    handleLanguageChange(newPair);
+  };
+
+  // ─── Move word to different language ───
+  const handleMoveWordLanguage = async (word: string, newPair: string) => {
+    setMovingWord(word);
+    try {
+      const res = await fetch("/api/vocabulary/move", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ word, newLanguagePair: newPair }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        // Refresh the list
+        const langPair = activeLanguagePair || defaultLanguagePair;
+        fetchVocabulary(page, search, langPair);
+      }
+    } catch {
+      // Silently fail
+    } finally {
+      setMovingWord(null);
+    }
+  };
+
   // ─── Current language display info ───
   const currentPair = activeLanguagePair || defaultLanguagePair;
   const [currentNative, currentTarget] = currentPair.split("-");
   const currentTargetInfo = getLangInfo(currentTarget);
   const currentNativeInfo = getLangInfo(currentNative);
+
+  // Check if the local language differs from profile
+  const profilePair = `${profile?.nativeLanguage || "en"}-${profile?.targetLanguage || "ar"}`;
+  const isLocalSwitch = currentPair !== profilePair;
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
@@ -422,41 +489,89 @@ export default function VocabularyPage() {
               Vocabulary Book
             </h1>
             <p className="text-sm text-[var(--text-secondary)]">
-              Words you encounter in conversations are automatically saved here for review
+              Words you encounter in conversations are automatically saved here
             </p>
           </div>
         </div>
       </div>
 
-      {/* ═══ Language Tabs ═══ */}
-      {languageGroups.length > 1 ? (
-        <div className="mb-6">
-          <div className="custom-scrollbar flex items-center gap-2 overflow-x-auto pb-1">
-            <Globe className="h-4 w-4 shrink-0 text-[var(--text-muted)]" />
-            {languageGroups.map((group) => (
-              <LanguageTab
-                key={group.languagePair}
-                group={group}
-                isActive={currentPair === group.languagePair}
-                onClick={() => handleLanguageChange(group.languagePair)}
-              />
-            ))}
+      {/* ═══ Language Switcher Bar (LOCAL — not profile) ═══ */}
+      <div className="mb-6 overflow-hidden rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)]">
+        <div className="flex flex-wrap items-center gap-3 p-4">
+          {/* Native language dropdown */}
+          <div className="flex items-center gap-2">
+            <label className="text-[10px] font-medium text-[var(--text-muted)]">From</label>
+            <select
+              value={currentNative}
+              onChange={(e) => handleLocalNativeChange(e.target.value)}
+              className="inline-flex items-center gap-1.5 rounded-full bg-[var(--bg-elevated)] px-3 py-1.5 text-sm font-medium text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent-primary)]/20"
+            >
+              {SUPPORTED_LANGUAGES.map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.flagEmoji} {l.name}
+                </option>
+              ))}
+            </select>
           </div>
-        </div>
-      ) : (
-        /* Single language indicator */
-        <div className="mb-6 flex items-center gap-2 rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] px-4 py-2.5">
-          <span className="text-base">{currentTargetInfo.flagEmoji}</span>
-          <span className="text-sm font-medium text-[var(--text-primary)]">
-            {currentNativeInfo.name} → {currentTargetInfo.name}
-          </span>
+
+          <span className="text-[var(--text-muted)]">&rarr;</span>
+
+          {/* Target language dropdown */}
+          <div className="flex items-center gap-2">
+            <label className="text-[10px] font-medium text-[var(--text-muted)]">Learning</label>
+            <select
+              value={currentTarget}
+              onChange={(e) => handleLocalTargetChange(e.target.value)}
+              className="inline-flex items-center gap-1.5 rounded-full bg-[var(--accent-light)] px-3 py-1.5 text-sm font-medium text-[var(--accent-primary)] outline-none focus:ring-2 focus:ring-[var(--accent-primary)]/20"
+            >
+              {SUPPORTED_LANGUAGES.map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.flagEmoji} {l.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Word count badge */}
           {total > 0 && (
             <Badge variant="secondary" className="text-xs">
               {total} {total === 1 ? "word" : "words"}
             </Badge>
           )}
+
+          {/* Local switch indicator */}
+          {isLocalSwitch && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/20 dark:text-amber-400">
+              <Globe className="h-2.5 w-2.5" />
+              Viewing only — doesn&apos;t change dashboard
+            </span>
+          )}
+
+          <div className="flex-1" />
+
+          {/* Quick language tabs if multiple languages exist */}
+          {languageGroups.length > 1 && (
+            <div className="custom-scrollbar flex items-center gap-1 overflow-x-auto">
+              {languageGroups.map((group) => {
+                const info = getLangInfo(group.targetLang);
+                return (
+                  <button
+                    key={group.languagePair}
+                    onClick={() => handleLanguageChange(group.languagePair)}
+                    className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-medium transition-all ${
+                      currentPair === group.languagePair
+                        ? "bg-[var(--accent-primary)] text-white"
+                        : "bg-[var(--bg-elevated)] text-[var(--text-muted)] hover:text-[var(--accent-primary)]"
+                    }`}
+                  >
+                    {info.flagEmoji} {info.name} ({group.count})
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
-      )}
+      </div>
 
       {/* ═══ Search Bar + Stats ═══ */}
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -531,7 +646,11 @@ export default function VocabularyPage() {
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {items.map((item) => (
-              <VocabularyCard key={`${item.word}-${item.translation}`} item={item} />
+              <VocabularyCard
+                key={`${item.word}-${item.translation}`}
+                item={item}
+                onMoveLanguage={handleMoveWordLanguage}
+              />
             ))}
           </div>
 
