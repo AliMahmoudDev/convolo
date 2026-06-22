@@ -180,12 +180,8 @@ function VocabularyCard({ item }: { item: VocabItem }) {
   const targetLang = item.languagePair?.split("-")[1] || "en";
 
   const handleListen = () => {
-    console.log("%c[🔍 CARD DEBUG]", "color: #f59e0b; font-weight: bold", "handleListen clicked!");
-    console.log("  item.word:", item.word);
-    console.log("  item.languagePair:", item.languagePair);
-    console.log("  targetLang:", targetLang);
-    console.log("  isSpeaking:", isSpeaking);
-
+    // ABSOLUTE TEST — alert cannot be missed on any device
+    alert(`CLICKED! word="${item.word}" lang="${targetLang}" pair="${item.languagePair}"`);
     if (isSpeaking) {
       stop();
     } else {
