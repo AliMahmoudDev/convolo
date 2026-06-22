@@ -127,7 +127,7 @@ You MUST respond with a valid JSON object. No markdown, no code fences, just pur
 4. "hints" — Style suggestions that are NOT errors and truly help the learner. For example: more natural phrasing alternatives ("I am happy" → "I'm happy" for casual speech), better word choices ("very big" → "huge"), or register improvements. Do NOT flag apostrophe/punctuation differences — these are typing style, not language learning issues. Empty array [] if none.
 5. "vocabularyItems" — include 1-3 useful words from this exchange. Maximum 3. Empty array [] if none.
 6. "grammarNotes" — include only if a grammar rule is relevant. Maximum 1. Empty array [] if none.
-7. "suggestions" — provide 2-3 short suggested replies in ${targetName} the student could use next. This helps beginners who don't know what to say.
+7. "suggestions" — provide 2-3 short suggested replies in ${targetName} the student could use next. This helps beginners who don't know what to say. IMPORTANT: Do NOT suggest the same sentence the user just wrote (especially if it was corrected). Each suggestion must be DIFFERENT from the user's input. Do NOT repeat the same suggestion twice — each suggestion must be unique.
 8. Severity: "minor" = typo/small error, "moderate" = grammar error that changes meaning slightly, "major" = error that significantly changes meaning or is a fundamental mistake.
 9. IMPORTANT: Know the difference between corrections, hints, and things to ignore:
    - "I are happy" → "I am happy" is a CORRECTION (wrong grammar)
@@ -222,9 +222,7 @@ export function parseAIResponse(rawText: string): ParsedAIResponse {
     const realCorrections = rawCorrections.filter(
       (c) => !shouldIgnoreCorrection(c.original, c.corrected)
     );
-    const realHints = rawHints.filter(
-      (h) => !shouldIgnoreCorrection(h.original, h.suggested)
-    );
+    const realHints = rawHints.filter((h) => !shouldIgnoreCorrection(h.original, h.suggested));
 
     return {
       reply: typeof parsed.reply === "string" ? parsed.reply : "",
@@ -276,7 +274,10 @@ function parseCorrections(raw: unknown): Correction[] {
       ];
       const originalLower = c.original.trim().toLowerCase();
       const correctedLower = c.corrected.trim().toLowerCase();
-      if (noCorrectionPhrases.some((phrase) => originalLower === phrase || correctedLower === phrase)) return false;
+      if (
+        noCorrectionPhrases.some((phrase) => originalLower === phrase || correctedLower === phrase)
+      )
+        return false;
       return true;
     });
 }
@@ -299,7 +300,11 @@ function shouldIgnoreCorrection(original: string, corrected: string): boolean {
   // Remove all apostrophes, hyphens, and lowercase everything
   // If they're the same after that, it's just an apostrophe/punctuation difference
   const normalize = (s: string) =>
-    s.toLowerCase().replace(/[''`ʼ‛-]/g, "").replace(/\s+/g, " ").trim();
+    s
+      .toLowerCase()
+      .replace(/[''`ʼ‛-]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
 
   if (normalize(orig) === normalize(corr)) {
     return true; // Only difference is apostrophe/punctuation — IGNORE
@@ -322,15 +327,42 @@ function shouldIgnoreCorrection(original: string, corrected: string): boolean {
 
       // Contraction without apostrophe: "iam" normalizes to "im"
       const contractionMap: Record<string, string> = {
-        "iam": "im", "im": "im", "ive": "ive", "id": "id", "ill": "ill",
-        "youre": "youre", "youve": "youve", "youll": "youll", "youd": "youd",
-        "hes": "hes", "shes": "shes", "its": "its", "were": "were",
-        "theyre": "theyre", "theyve": "theyve", "theyll": "theyll", "theyd": "theyd",
-        "dont": "dont", "doesnt": "doesnt", "didnt": "didnt", "wont": "wont",
-        "wouldnt": "wouldnt", "couldnt": "couldnt", "shouldnt": "shouldnt",
-        "isnt": "isnt", "arent": "arent", "wasnt": "wasnt", "werent": "werent",
-        "havent": "havent", "hasnt": "hasnt", "hadnt": "hadnt", "cant": "cant",
-        "mustnt": "mustnt", "lets": "lets", "whos": "whos", "whats": "whats",
+        iam: "im",
+        im: "im",
+        ive: "ive",
+        id: "id",
+        ill: "ill",
+        youre: "youre",
+        youve: "youve",
+        youll: "youll",
+        youd: "youd",
+        hes: "hes",
+        shes: "shes",
+        its: "its",
+        were: "were",
+        theyre: "theyre",
+        theyve: "theyve",
+        theyll: "theyll",
+        theyd: "theyd",
+        dont: "dont",
+        doesnt: "doesnt",
+        didnt: "didnt",
+        wont: "wont",
+        wouldnt: "wouldnt",
+        couldnt: "couldnt",
+        shouldnt: "shouldnt",
+        isnt: "isnt",
+        arent: "arent",
+        wasnt: "wasnt",
+        werent: "werent",
+        havent: "havent",
+        hasnt: "hasnt",
+        hadnt: "hadnt",
+        cant: "cant",
+        mustnt: "mustnt",
+        lets: "lets",
+        whos: "whos",
+        whats: "whats",
       };
 
       const owNorm = contractionMap[ow] || ow;
@@ -393,6 +425,7 @@ function parseSuggestions(raw: unknown): string[] {
   return raw
     .filter((s): s is string => typeof s === "string" && s.trim().length > 0)
     .map((s) => s.trim())
+    .filter((s, i, arr) => arr.indexOf(s) === i) // Deduplicate
     .slice(0, 5); // Max 5 suggestions
 }
 

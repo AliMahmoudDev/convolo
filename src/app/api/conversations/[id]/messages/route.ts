@@ -228,8 +228,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
     // Store suggestions + hints in metadata (no dedicated columns yet)
     const metadata: Record<string, unknown> = { provider: getAIProvider().name };
-    if (aiResponse.suggestions && aiResponse.suggestions.length > 0) {
-      metadata.suggestions = aiResponse.suggestions;
+
+    // Filter out suggestions that match the user's input (case-insensitive, trimmed)
+    const normalizedUserInput = userContent.trim().toLowerCase();
+    const filteredSuggestions = (aiResponse.suggestions || []).filter(
+      (s: string) => s.trim().toLowerCase() !== normalizedUserInput
+    );
+
+    if (filteredSuggestions.length > 0) {
+      metadata.suggestions = filteredSuggestions;
     }
     if (aiResponse.hints && aiResponse.hints.length > 0) {
       metadata.hints = aiResponse.hints;
@@ -290,7 +297,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         hints: aiResponse.hints || [],
         vocabularyItems: aiResponse.vocabularyItems || [],
         grammarNotes: aiResponse.grammarNotes || [],
-        suggestions: aiResponse.suggestions || [],
+        suggestions: filteredSuggestions,
         role: "assistant",
         createdAt: aiMessage?.createdAt || new Date().toISOString(),
       },
