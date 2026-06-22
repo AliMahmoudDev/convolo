@@ -1,10 +1,8 @@
 /**
  * useSpeech — TTS using server-side audio with Web Audio API playback
  *
- * Why Web Audio API instead of <audio> element:
- * - <audio> element doesn't support WAV on many mobile browsers
- * - Web Audio API decodeAudioData() works with WAV on ALL browsers
- * - Same approach used by production audio apps
+ * Web Audio API decodeAudioData() supports MP3 on ALL browsers (including mobile).
+ * Server returns MP3 audio from Google Translate TTS.
  */
 
 "use client";
@@ -20,75 +18,6 @@ const SpeechContext = createContext({ voicesReady: true });
 
 export function SpeechProvider({ children }: { children: ReactNode }) {
   return <SpeechContext.Provider value={{ voicesReady: true }}>{children}</SpeechContext.Provider>;
-}
-
-// ═══════════════════════════════════════════
-// On-screen Debug Toast System
-// ═══════════════════════════════════════════
-
-interface DebugMsg {
-  id: number;
-  text: string;
-  type: "info" | "ok" | "error";
-}
-
-let debugListeners: Array<(msgs: DebugMsg[]) => void> = [];
-let debugMsgs: DebugMsg[] = [];
-let debugId = 0;
-
-function addDebug(text: string, type: "info" | "ok" | "error" = "info") {
-  const msg: DebugMsg = { id: ++debugId, text, type };
-  debugMsgs = [...debugMsgs.slice(-6), msg];
-  debugListeners.forEach((fn) => fn([...debugMsgs]));
-}
-
-export function TTSDebugOverlay() {
-  const [msgs, setMsgs] = useState<DebugMsg[]>([]);
-
-  useEffect(() => {
-    debugListeners.push(setMsgs);
-    return () => {
-      debugListeners = debugListeners.filter((fn) => fn !== setMsgs);
-    };
-  }, []);
-
-  if (msgs.length === 0) return null;
-
-  return (
-    <div
-      style={{
-        position: "fixed",
-        bottom: 80,
-        left: 8,
-        right: 8,
-        zIndex: 9999,
-        display: "flex",
-        flexDirection: "column",
-        gap: 4,
-        pointerEvents: "none",
-      }}
-    >
-      {msgs.map((m) => (
-        <div
-          key={m.id}
-          style={{
-            padding: "6px 10px",
-            borderRadius: 8,
-            fontSize: 11,
-            fontFamily: "monospace",
-            lineHeight: 1.4,
-            color: "#fff",
-            backgroundColor:
-              m.type === "error" ? "#dc2626" : m.type === "ok" ? "#16a34a" : "#4f46e5",
-            opacity: 0.92,
-            wordBreak: "break-all",
-          }}
-        >
-          {m.type === "ok" ? "✅" : m.type === "error" ? "❌" : "🔍"} {m.text}
-        </div>
-      ))}
-    </div>
-  );
 }
 
 // ═══════════════════════════════════════════
@@ -128,14 +57,11 @@ export function useSpeech() {
 
   const speak = useCallback(
     (text: string, langCode: string = "en") => {
-      addDebug(`speak("${text}", "${langCode}")`, "info");
       cleanup();
       setIsSpeaking(true);
-      addDebug("Fetching audio...", "info");
 
       // Safety timeout
       timeoutRef.current = setTimeout(() => {
-        addDebug("⏰ TIMEOUT — no response", "error");
         cleanup();
         setIsSpeaking(false);
       }, LOAD_TIMEOUT_MS);
@@ -145,23 +71,11 @@ export function useSpeech() {
       fetch(url)
         .then(async (res) => {
           if (!res.ok) {
-            // Try to get error details from response body
-            let detail = "";
-            try {
-              const body = await res.json();
-              detail = body.detail || body.error || "";
-              addDebug(`❌ ${res.status}: ${body.step || ""} — ${detail}`, "error");
-            } catch {
-              addDebug(`❌ HTTP ${res.status}`, "error");
-            }
-            throw new Error(`HTTP ${res.status}: ${detail}`);
+            throw new Error(`HTTP ${res.status}`);
           }
-          addDebug(`Got response (${res.headers.get("Content-Type")})`, "info");
           return res.arrayBuffer();
         })
         .then((arrayBuffer) => {
-          addDebug(`Audio data: ${arrayBuffer.byteLength} bytes`, "info");
-
           // Create AudioContext if needed
           if (!audioContextRef.current) {
             audioContextRef.current = new (
@@ -172,16 +86,13 @@ export function useSpeech() {
 
           // Resume if suspended (mobile browsers require user interaction)
           if (ctx.state === "suspended") {
-            addDebug("Resuming AudioContext...", "info");
             ctx.resume();
           }
 
-          // Decode the audio data — this works with WAV on ALL browsers
+          // Decode the audio data — works with MP3 on ALL browsers
           return ctx.decodeAudioData(arrayBuffer);
         })
         .then((audioBuffer) => {
-          addDebug("Decoded OK, playing!", "ok");
-
           // Clear timeout
           if (timeoutRef.current) {
             clearTimeout(timeoutRef.current);
@@ -198,14 +109,11 @@ export function useSpeech() {
 
           source.onended = () => {
             setIsSpeaking(false);
-            addDebug("Playback finished", "ok");
           };
 
           source.start(0);
-          addDebug("🎵 PLAYING!", "ok");
         })
-        .catch((err) => {
-          addDebug(`❌ Error: ${err?.message || err}`, "error");
+        .catch(() => {
           cleanup();
           setIsSpeaking(false);
         });
@@ -214,7 +122,6 @@ export function useSpeech() {
   );
 
   const stop = useCallback(() => {
-    addDebug("Stopped", "info");
     cleanup();
     setIsSpeaking(false);
   }, [cleanup]);
