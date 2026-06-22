@@ -143,8 +143,19 @@ export function useSpeech() {
       const url = `/api/tts?text=${encodeURIComponent(text)}&lang=${encodeURIComponent(langCode)}`;
 
       fetch(url)
-        .then((res) => {
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        .then(async (res) => {
+          if (!res.ok) {
+            // Try to get error details from response body
+            let detail = "";
+            try {
+              const body = await res.json();
+              detail = body.detail || body.error || "";
+              addDebug(`❌ ${res.status}: ${body.step || ""} — ${detail}`, "error");
+            } catch {
+              addDebug(`❌ HTTP ${res.status}`, "error");
+            }
+            throw new Error(`HTTP ${res.status}: ${detail}`);
+          }
           addDebug(`Got response (${res.headers.get("Content-Type")})`, "info");
           return res.arrayBuffer();
         })

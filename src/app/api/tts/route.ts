@@ -3,6 +3,8 @@
  *
  * Returns WAV audio. Client uses Web Audio API to decode and play.
  * Web Audio API decodeAudioData() supports WAV on ALL browsers (including mobile).
+ *
+ * Includes detailed error info for debugging.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -61,18 +63,63 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const zai = await getZAI();
+    // Step 1: Initialize SDK
+    let zai;
+    try {
+      zai = await getZAI();
+    } catch (sdkInitError: any) {
+      console.error("[TTS API] SDK init failed:", sdkInitError?.message);
+      return NextResponse.json(
+        {
+          error: "SDK init failed",
+          detail: sdkInitError?.message || String(sdkInitError),
+          step: "sdk_init",
+        },
+        { status: 500 }
+      );
+    }
+
+    // Step 2: Call TTS
     const voice = LANG_VOICES[lang] || "kazi";
+    let response;
+    try {
+      response = await zai.audio.tts.create({
+        input: text.trim(),
+        voice,
+        speed: 0.85,
+        response_format: "wav",
+        stream: false,
+      });
+    } catch (ttsError: any) {
+      console.error("[TTS API] TTS create failed:", ttsError?.message);
+      return NextResponse.json(
+        {
+          error: "TTS generation failed",
+          detail: ttsError?.message || String(ttsError),
+          step: "tts_create",
+          voice,
+          text: text.slice(0, 50),
+        },
+        { status: 500 }
+      );
+    }
 
-    const response = await zai.audio.tts.create({
-      input: text.trim(),
-      voice,
-      speed: 0.85,
-      response_format: "wav",
-      stream: false,
-    });
+    // Step 3: Read audio data
+    let arrayBuffer;
+    try {
+      arrayBuffer = await response.arrayBuffer();
+    } catch (readError: any) {
+      console.error("[TTS API] Read audio failed:", readError?.message);
+      return NextResponse.json(
+        {
+          error: "Failed to read audio data",
+          detail: readError?.message || String(readError),
+          step: "read_audio",
+        },
+        { status: 500 }
+      );
+    }
 
-    const arrayBuffer = await response.arrayBuffer();
     const buffer = Buffer.from(new Uint8Array(arrayBuffer));
 
     if (cache.size >= MAX_CACHE) {
@@ -89,7 +136,14 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (error: any) {
-    console.error("[TTS API] Error:", error?.message || error);
-    return NextResponse.json({ error: "TTS failed" }, { status: 500 });
+    console.error("[TTS API] Unexpected error:", error?.message || error);
+    return NextResponse.json(
+      {
+        error: "TTS failed",
+        detail: error?.message || String(error),
+        step: "unknown",
+      },
+      { status: 500 }
+    );
   }
 }
