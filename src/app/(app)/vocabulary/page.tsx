@@ -16,7 +16,7 @@
 
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import {
   BookOpen,
@@ -27,9 +27,6 @@ import {
   Volume2,
   Globe,
   ChevronRight,
-  ArrowLeftRight,
-  ChevronDown,
-  Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -171,82 +168,10 @@ function EmptyState({ hasSearch, languageName }: { hasSearch: boolean; languageN
 }
 
 // ═══════════════════════════════════════════
-// Language Move Dropdown (per card)
-// ═══════════════════════════════════════════
-
-function MoveLanguageDropdown({
-  currentPair,
-  onMove,
-}: {
-  currentPair: string;
-  onMove: (newPair: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handleClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    if (open) document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [open]);
-
-  const [nativeCode, targetCode] = currentPair.split("-");
-
-  return (
-    <div ref={ref} className="relative">
-      <button
-        onClick={() => setOpen(!open)}
-        className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-elevated)] hover:text-[var(--text-secondary)]"
-        title="Move to different language"
-      >
-        <ArrowLeftRight className="h-3 w-3" />
-        Move
-      </button>
-      {open && (
-        <div className="absolute bottom-full left-0 z-30 mb-1 w-56 rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-2 shadow-[var(--shadow-lg)]">
-          <p className="mb-2 px-2 text-[10px] font-medium text-[var(--text-muted)]">
-            Move word to language:
-          </p>
-          <div className="max-h-48 overflow-y-auto">
-            {SUPPORTED_LANGUAGES.filter((l) => l.code !== targetCode).map((lang) => {
-              const newPair = `${nativeCode}-${lang.code}`;
-              return (
-                <button
-                  key={lang.code}
-                  onClick={() => {
-                    onMove(newPair);
-                    setOpen(false);
-                  }}
-                  className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--accent-light)] hover:text-[var(--accent-primary)]"
-                >
-                  <span className="text-sm">{lang.flagEmoji}</span>
-                  <span>{lang.name}</span>
-                  <span className="ml-auto text-[9px] text-[var(--text-muted)]">
-                    {nativeCode}→{lang.code}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════
 // Vocabulary Card
 // ═══════════════════════════════════════════
 
-function VocabularyCard({
-  item,
-  onMoveLanguage,
-}: {
-  item: VocabItem;
-  onMoveLanguage: (word: string, newPair: string) => void;
-}) {
+function VocabularyCard({ item }: { item: VocabItem }) {
   return (
     <div className="group rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-5 transition-all duration-200 hover:border-[var(--accent-primary)]/30 hover:shadow-[var(--shadow-md)]">
       {/* Word + Part of Speech */}
@@ -304,11 +229,6 @@ function VocabularyCard({
           <Volume2 className="h-3.5 w-3.5" />
           Listen
         </Button>
-        {/* Move to different language */}
-        <MoveLanguageDropdown
-          currentPair={item.languagePair || "en-ar"}
-          onMove={(newPair) => onMoveLanguage(item.word, newPair)}
-        />
       </div>
     </div>
   );
@@ -329,7 +249,6 @@ export default function VocabularyPage() {
   const [searchInput, setSearchInput] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [movingWord, setMovingWord] = useState<string | null>(null);
 
   // Language groups + active language
   const [languageGroups, setLanguageGroups] = useState<LanguageGroup[]>([]);
@@ -439,28 +358,6 @@ export default function VocabularyPage() {
     const native = (activeLanguagePair || defaultLanguagePair).split("-")[0] || "en";
     const newPair = `${native}-${newTarget}`;
     handleLanguageChange(newPair);
-  };
-
-  // ─── Move word to different language ───
-  const handleMoveWordLanguage = async (word: string, newPair: string) => {
-    setMovingWord(word);
-    try {
-      const res = await fetch("/api/vocabulary/move", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ word, newLanguagePair: newPair }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        // Refresh the list
-        const langPair = activeLanguagePair || defaultLanguagePair;
-        fetchVocabulary(page, search, langPair);
-      }
-    } catch {
-      // Silently fail
-    } finally {
-      setMovingWord(null);
-    }
   };
 
   // ─── Current language display info ───
@@ -646,11 +543,7 @@ export default function VocabularyPage() {
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {items.map((item) => (
-              <VocabularyCard
-                key={`${item.word}-${item.translation}`}
-                item={item}
-                onMoveLanguage={handleMoveWordLanguage}
-              />
+              <VocabularyCard key={`${item.word}-${item.translation}`} item={item} />
             ))}
           </div>
 
